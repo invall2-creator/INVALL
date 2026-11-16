@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editores
+.vscode/
+.idea/
+
+# Entornos, dependencias y temporales
+.env
+.env.*
+!.env.example
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+dist/
+build/
+coverage/
+*.log
+*.tmp
+
+# Claves y credenciales
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
