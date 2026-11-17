@@ -108,3 +108,6 @@ th { color: #becce1; }
 .profile-photo-controls { display: grid; justify-items: start; gap: 8px; margin-top: 8px; }
 .profile-photo-controls input { max-width: min(100%, 320px); }
 .profile-photo-controls p { margin: 0; }
+
+.remove-flight { background: #8d2639; }
+.remove-flight:hover:enabled { background: #a53046; }
