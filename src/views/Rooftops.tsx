@@ -35,6 +35,19 @@ function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: numb
 }
 const fmtKm = (km: number) => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(km < 10 ? 1 : 0).replace('.', ',')} km`;
 type MyPos = { lat: number; lng: number; acc: number };
+type Place = { lat: number; lng: number; label: string };
+
+/** Address search with OpenStreetMap (Nominatim), limited to Catalonia. Called only on explicit search, never per keystroke. */
+async function searchPlaces(text: string): Promise<Place[]> {
+  const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+    q: text, format: 'jsonv2', addressdetails: '0', limit: '6', countrycodes: 'es',
+    viewbox: '0.15,42.87,3.35,40.5', bounded: '1', 'accept-language': 'ca',
+  });
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error('search failed');
+  const list = await res.json() as { lat: string; lon: string; display_name: string }[];
+  return list.map(x => ({ lat: Number(x.lat), lng: Number(x.lon), label: x.display_name.split(', ').slice(0, 4).join(', ') }));
+}
 
 const address = (r: Rooftop) => [r.street, r.town].filter(Boolean).join(' · ');
 
@@ -51,6 +64,12 @@ export function Rooftops({ data }: { data: AppData }) {
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
   const [myPos, setMyPos] = useState<MyPos | null>(null);
+  const [place, setPlace] = useState<Place | null>(null);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [placeResults, setPlaceResults] = useState<Place[] | null>(null);
+  const [searchingPlace, setSearchingPlace] = useState(false);
+  const [placeError, setPlaceError] = useState('');
+  const placeLayer = useRef<L.LayerGroup | null>(null);
   const [locating, setLocating] = useState(false);
   const [geoError, setGeoError] = useState('');
   const watchId = useRef<number | null>(null);
@@ -75,12 +94,13 @@ export function Rooftops({ data }: { data: AppData }) {
     return () => { active = false; };
   }, [tick]);
 
+  const origin: { lat: number; lng: number } | null = place ?? myPos;
   const visible = useMemo(() => {
     if (!rows) return [];
     const q = norm(query.trim());
     const list = q ? rows.filter(r => norm([r.name, r.street, r.town, r.contact, r.notes].join(' ')).includes(q)) : rows;
-    return myPos ? [...list].sort((a, b) => distanceKm(myPos, a) - distanceKm(myPos, b)) : list;
-  }, [rows, query, myPos]);
+    return origin ? [...list].sort((a, b) => distanceKm(origin, a) - distanceKm(origin, b)) : list;
+  }, [rows, query, origin]);
   const selected = rows?.find(r => r.id === selectedId) ?? null;
 
   // Map setup (once)
@@ -92,6 +112,7 @@ export function Rooftops({ data }: { data: AppData }) {
     }).addTo(m);
     layer.current = L.layerGroup().addTo(m);
     meLayer.current = L.layerGroup().addTo(m);
+    placeLayer.current = L.layerGroup().addTo(m);
     m.on('click', e => {
       if (!editingRef.current) return;
       setDraft(prev => prev && { ...prev, lat: e.latlng.lat.toFixed(6), lng: e.latlng.lng.toFixed(6) });
@@ -153,6 +174,34 @@ export function Rooftops({ data }: { data: AppData }) {
     if (!centeredOnMe.current) { m.flyTo([myPos.lat, myPos.lng], 15, { duration: 0.8 }); centeredOnMe.current = true; }
   }, [myPos]);
   useEffect(() => () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); }, []);
+
+  // Searched address on the map
+  useEffect(() => {
+    const m = map.current, group = placeLayer.current;
+    if (!m || !group) return;
+    group.clearLayers();
+    if (!place) return;
+    L.marker([place.lat, place.lng], { icon: L.divIcon({ className: 'roof-pin place', html: '<span></span>', iconSize: [26, 26], iconAnchor: [13, 26] }) })
+      .bindTooltip(place.label, { direction: 'top', offset: [0, -24] }).addTo(group);
+    const nearest = rows ? [...rows].sort((a, b) => distanceKm(place, a) - distanceKm(place, b)).slice(0, 3) : [];
+    m.flyToBounds(L.latLngBounds([[place.lat, place.lng], ...nearest.map(r => [r.lat, r.lng] as L.LatLngTuple)]), { padding: [40, 40], maxZoom: 16, duration: 0.8 });
+  }, [place, rows]);
+
+  function choosePlace(p: Place) { setPlace(p); setPlaceResults(null); setPlaceQuery(p.label); setSelectedId(null); }
+  async function findPlace(event: FormEvent) {
+    event.preventDefault();
+    const text = placeQuery.trim();
+    if (text.length < 3) { setPlaceError('Escriu un carrer, una adreça o un lloc.'); return; }
+    setPlaceError(''); setSearchingPlace(true); setPlaceResults(null);
+    try {
+      const found = await searchPlaces(text);
+      if (!found.length) setPlaceError('No he trobat aquesta adreça a Catalunya. Prova afegint el número o la població.');
+      else if (found.length === 1) choosePlace(found[0]);
+      else setPlaceResults(found);
+    } catch {
+      setPlaceError("No s'ha pogut fer la cerca. Revisa la connexió i torna-ho a provar.");
+    } finally { setSearchingPlace(false); }
+  }
 
   function locateMe() {
     setGeoError('');
@@ -249,6 +298,17 @@ export function Rooftops({ data }: { data: AppData }) {
       </div>
     </div>
     {geoError && <p className="err" role="alert">{geoError}</p>}
+    <form className="place-search" onSubmit={findPlace} role="search">
+      <label htmlFor="t-adreca" className="sr-only">Carrer o adreça</label>
+      <input id="t-adreca" type="search" placeholder="Escriu un carrer o adreça per veure els terrats més propers (p. ex. Via Laietana 43, Barcelona)" value={placeQuery} onChange={e => setPlaceQuery(e.target.value)} />
+      <button className="primary" disabled={searchingPlace}>{searchingPlace ? 'Cercant…' : 'Terrats més propers'}</button>
+      {place && <button type="button" onClick={() => { setPlace(null); setPlaceQuery(''); setPlaceResults(null); }}>Treu l'adreça</button>}
+    </form>
+    {placeError && <p className="err" role="alert">{placeError}</p>}
+    {placeResults && <div className="panel place-results">
+      <h3>Quina d'aquestes adreces?</h3>
+      <ul>{placeResults.map((p, i) => <li key={i}><button type="button" className="link" onClick={() => choosePlace(p)}>{p.label}</button></li>)}</ul>
+    </div>}
     {problem && <p className="err">{problem}</p>}
     {notice && <p className="ok" role="status">{notice}</p>}
     <div className="roof-layout">
@@ -282,7 +342,7 @@ export function Rooftops({ data }: { data: AppData }) {
             <div className="view-head"><h3 className="roof-title">{selected.name}</h3><button type="button" className="small" onClick={() => setSelectedId(null)} aria-label="Tanca la fitxa">✕</button></div>
             <dl className="kv">
               {address(selected) && <><dt>Adreça</dt><dd>{address(selected)}</dd></>}
-              {myPos && <><dt>Distància</dt><dd>{fmtKm(distanceKm(myPos, selected))} en línia recta</dd></>}
+              {origin && <><dt>Distància</dt><dd>{fmtKm(distanceKm(origin, selected))} en línia recta {place ? "de l'adreça cercada" : 'de tu'}</dd></>}
               {selected.contact && <><dt>Contacte</dt><dd>{selected.contact}</dd></>}
               {selected.phones && <><dt>Telèfons</dt><dd>{phoneLinks(selected.phones)}</dd></>}
               {selected.email && <><dt>Correu</dt><dd className="wrap-any">{emailLinks(selected.email)}</dd></>}
@@ -297,12 +357,12 @@ export function Rooftops({ data }: { data: AppData }) {
           </div>}
           <label htmlFor="t-cerca" className="sr-only">Cerca terrats</label>
           <input id="t-cerca" type="search" placeholder="Cerca per nom, carrer, població o contacte…" value={query} onChange={e => setQuery(e.target.value)} />
-          <p className="hint">{rows ? `${visible.length} de ${rows.length} terrats${myPos ? ' · ordenats per distància' : ''}` : 'Carregant…'}</p>
+          <p className="hint">{rows ? `${visible.length} de ${rows.length} terrats${place ? ` · ordenats per distància a ${place.label.split(', ').slice(0, 2).join(', ')}` : myPos ? ' · ordenats per distància a tu' : ''}` : 'Carregant…'}</p>
           <ul className="roof-list">
             {visible.map(r => <li key={r.id}>
               <button type="button" className={r.id === selectedId ? 'on' : undefined} onClick={() => focus(r)}>
                 <b>{r.name}</b>
-                <span>{myPos && <strong className="roof-dist">{fmtKm(distanceKm(myPos, r))}</strong>}{address(r) || 'Sense adreça'}</span>
+                <span>{origin && <strong className="roof-dist">{fmtKm(distanceKm(origin, r))}</strong>}{address(r) || 'Sense adreça'}</span>
               </button>
             </li>)}
           </ul>
