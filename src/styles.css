@@ -131,3 +131,7 @@ th { color: #becce1; }
 
 .remove-flight { background: #8d2639; }
 .remove-flight:hover:enabled { background: #a53046; }
+
+.backup-share { display: grid; gap: 16px; max-width: 520px; margin-top: 16px; }
+.backup-share .actions { align-items: center; }
+.backup-share a { color: #c0dcff; }

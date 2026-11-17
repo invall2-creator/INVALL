@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import { ProfilePhoto } from './ProfilePhoto';
+import { FlightBackup } from './FlightBackup';
 import {
   formatDuration, loadFlights, loadPilots, loadProfile, summarizeFlights,
   type ApprovalStatus, type Flight, type Pilot, type Profile,
@@ -12,6 +13,7 @@ const accountsSectionId = 'comptes-de-pilots';
 const personalSectionId = 'els-meus-vols';
 const excelSectionId = 'excel';
 const manageSectionId = 'gestiona-els-vols';
+const backupSectionId = 'copia-de-seguretat';
 
 function currentSection() {
   return window.location.hash.slice(1);
@@ -168,6 +170,7 @@ function FlightAccount({ user }: { user: User }) {
   const admin = approved && profile.role === 'admin';
 
   const adminView = admin && adminRequested;
+  const backupView = admin && section === backupSectionId;
   const viewLoading = loading || loadedAdminRequest !== adminRequested;
   const userName = profile?.display_name || user.email || 'Pilot';
   const pilotNames = new Map(pilots.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
@@ -296,15 +299,16 @@ function FlightAccount({ user }: { user: User }) {
     <header>
       <div>
         <h1>UDRON · Control de vols</h1>
-        <p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p>
+        <p>{userName}{approved ? (adminView || backupView ? ' · Administrador' : ' · Pilot') : ''}</p>
         {approved && <ProfilePhoto userId={user.id} name={userName} />}
       </div>
       <nav className="actions account-navigation" aria-label="Compte">
         {approved && <>
-          <a href={'#' + personalSectionId} aria-current={!adminView && !excelView && !manageView ? 'page' : undefined}>Els meus vols</a>
+          <a href={'#' + personalSectionId} aria-current={!adminView && !excelView && !manageView && !backupView ? 'page' : undefined}>Els meus vols</a>
           <a href={'#' + manageSectionId} aria-current={manageView ? 'page' : undefined}>Gestiona els vols</a>
           <a href={'#' + excelSectionId} aria-current={excelView ? 'page' : undefined}>Excel</a>
           {admin && <a href={'#' + accountsSectionId} aria-current={adminView ? 'page' : undefined}>Administració</a>}
+          {admin && <a href={'#' + backupSectionId} aria-current={backupView ? 'page' : undefined}>Còpia de seguretat</a>}
         </>}
         <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
       </nav>
@@ -315,7 +319,8 @@ function FlightAccount({ user }: { user: User }) {
         ? 'La teva sol·licitud està pendent d’aprovació.'
         : 'El teu compte està bloquejat. Contacta amb l’administrador.'}</p>}
       <button onClick={() => setReload(value => value + 1)}>Torna a comprovar</button>
-    </section> : <>
+    </section> : backupView ?
+      <FlightBackup sectionId={backupSectionId} userId={user.id} name={userName} approvalsReady={approvalsReady} /> : <>
       {adminView && <section id={accountsSectionId} aria-labelledby="comptes-de-pilots-titol">
         <h2 id="comptes-de-pilots-titol">Comptes de pilots</h2>
         {!approvalsReady ? <p>Falta aplicar la migració d’aprovació a Supabase.</p> : pilots.length === 0 ? <p>Encara no hi ha cap sol·licitud de pilot.</p> : <div className="tablewrap"><table>
