@@ -80,6 +80,6 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
       </table></div>
       <p className="hint">Bloquejar treu l'accés però conserva tots els vols. Per bloquejar un administrador, primer treu-li el rol.</p>
     </div>
-    <FlightBackup data={data} />
+    <FlightBackup data={data} team />
   </section>;
 }

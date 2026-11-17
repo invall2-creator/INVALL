@@ -1,10 +1,12 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { supabase } from './lib/supabase';
 import type { AppData } from './context';
+import { loadFlights } from './flight-data';
 import { todayISO } from './format';
 const expirySeconds = 24 * 60 * 60;
 
-export function FlightBackup({ data }: { data: AppData }) {
+export function FlightBackup({ data, team = false }: { data: AppData; team?: boolean }) {
+  const teamBackup = team && data.isAdmin;
   const [email, setEmail] = useState('');
   const [link, setLink] = useState('');
   const [busy, setBusy] = useState(false);
@@ -17,10 +19,13 @@ export function FlightBackup({ data }: { data: AppData }) {
     setMessage('');
     setBusy(true);
     try {
-      const { createFlightWorkbook, WORKBOOK_TYPE } = await import('./flight-export');
-      const buffer = await createFlightWorkbook(data.flights.filter(f => !f.deleted_at), data);
-      const filename = 'UDRON-copia-de-vols-' + todayISO() + '.xlsx';
-      const path = data.user.id + '/' + crypto.randomUUID() + '-' + filename;
+      const [{ createFlightWorkbook, WORKBOOK_TYPE }, flights] = await Promise.all([
+        import('./flight-export'), loadFlights(teamBackup ? undefined : data.user.id),
+      ]);
+      const buffer = await createFlightWorkbook(flights.filter(f => !f.deleted_at), { ...data, isAdmin: teamBackup });
+      const scope = teamBackup ? 'equip' : 'personal';
+      const filename = 'UDRON-copia-' + scope + '-' + todayISO() + '.xlsx';
+      const path = data.user.id + '/' + scope + '/' + crypto.randomUUID() + '-' + filename;
       const storage = supabase.storage.from('flight-backups');
       const { error: uploadError } = await storage.upload(path, new Blob([buffer], { type: WORKBOOK_TYPE }), {
         contentType: WORKBOOK_TYPE, cacheControl: '0',
@@ -53,8 +58,8 @@ export function FlightBackup({ data }: { data: AppData }) {
     '?subject=' + encodeURIComponent('UDRON · Còpia de vols') + '&body=' + encodeURIComponent(mailBody);
 
   return <section className="panel" aria-labelledby="backup-title">
-    <h2 id="backup-title">Còpia de seguretat</h2>
-    <p>Genera un fitxer Excel amb tots els vols actius i les hores per pilot. Qualsevol persona que tingui l’enllaç el podrà descarregar durant 24 hores.</p>
+    <h2 id="backup-title">{teamBackup ? 'Còpia de seguretat de l’equip' : 'Còpia de seguretat personal'}</h2>
+    <p>{teamBackup ? 'Genera un Excel amb tots els vols actius i les hores per pilot.' : 'Genera un Excel amb els teus vols actius i el teu total d’hores.'} Qualsevol persona que tingui l’enllaç el podrà descarregar durant 24 hores.</p>
     <form onSubmit={createBackup}>
       <button className="primary" disabled={busy}>{busy ? 'Preparant la còpia…' : 'Genera l’enllaç'}</button>
     </form>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import { ProfilePhoto } from './ProfilePhoto';
+import { FlightBackup } from './FlightBackup';
 import type { AppData } from './context';
 import {
   isMissingMigration, loadAircraft, loadFlights, loadProfile, loadTeam,
@@ -13,10 +14,10 @@ import { History } from './views/History';
 import { Team } from './views/Team';
 import { Fleet } from './views/Fleet';
 
-const VIEWS = ['tauler', 'registra', 'historial', 'equip', 'flota'] as const;
+const VIEWS = ['tauler', 'registra', 'historial', 'copia-de-seguretat', 'equip', 'flota'] as const;
 type View = typeof VIEWS[number];
 // Enllaços de la versió anterior
-const LEGACY: Record<string, View> = { 'els-meus-vols': 'tauler', 'gestiona-els-vols': 'historial', excel: 'historial', 'comptes-de-pilots': 'equip', 'copia-de-seguretat': 'equip' };
+const LEGACY: Record<string, View> = { 'els-meus-vols': 'tauler', 'gestiona-els-vols': 'historial', excel: 'historial', 'comptes-de-pilots': 'equip' };
 const appUrl = () => window.location.origin + import.meta.env.BASE_URL;
 
 function currentView(): View {
@@ -201,7 +202,7 @@ function Shell({ user }: { user: User }) {
         </div>
         {approved && <nav className="tabs" aria-label="Seccions">
           {VIEWS.filter(v => v !== 'equip' || data?.isAdmin).map(v => <a key={v} href={'#' + v} aria-current={effectiveView === v ? 'page' : undefined}>
-            {{ tauler: 'Tauler', registra: editing ? 'Edita el vol' : 'Registra un vol', historial: 'Historial', equip: 'Equip', flota: 'Flota' }[v]}
+            {{ tauler: 'Tauler', registra: editing ? 'Edita el vol' : 'Registra un vol', historial: 'Historial', 'copia-de-seguretat': 'Còpia de seguretat', equip: 'Equip', flota: 'Flota' }[v]}
             {v === 'equip' && team.some(m => m.approval_status === 'pending') && <span className="dot" aria-label="Hi ha sol·licituds pendents" />}
           </a>)}
         </nav>}
@@ -220,6 +221,7 @@ function Shell({ user }: { user: User }) {
           {effectiveView === 'tauler' && <Dashboard data={data} />}
           {effectiveView === 'registra' && <FlightForm data={data} editing={editing} onDone={() => { setEditing(null); go('historial'); }} />}
           {effectiveView === 'historial' && <History data={data} initialPilot={pilotFilter} onEdit={flight => { setEditing(flight); go('registra'); }} />}
+          {effectiveView === 'copia-de-seguretat' && <FlightBackup data={data} />}
           {effectiveView === 'equip' && <Team data={data} onOpenPilot={id => { setPilotFilter(id); go('historial'); }} />}
           {effectiveView === 'flota' && <Fleet data={data} />}
         </>}
