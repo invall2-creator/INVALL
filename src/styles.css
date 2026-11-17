@@ -82,3 +82,5 @@ th { color: #becce1; }
 }
 .account-navigation a:hover { background: #254b80; }
 #comptes-de-pilots { scroll-margin-top: 16px; }
+
+.account-navigation a[aria-current="page"] { background: #254b80; }

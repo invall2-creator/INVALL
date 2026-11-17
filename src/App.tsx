@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import {
-  flightFields, formatDuration, loadFlights, loadPilots, loadProfile, summarizeFlights,
+  formatDuration, loadFlights, loadPilots, loadProfile, summarizeFlights,
   type ApprovalStatus, type Flight, type Pilot, type Profile,
 } from './flight-data';
 
@@ -101,10 +101,18 @@ function FlightAccount({ user }: { user: User }) {
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
+  const [adminRequested, setAdminRequested] = useState(() => window.location.hash === '#' + accountsSectionId);
+  const [loadedAdminRequest, setLoadedAdminRequest] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [pilotBusy, setPilotBusy] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const followHash = () => setAdminRequested(window.location.hash === '#' + accountsSectionId);
+    window.addEventListener('hashchange', followHash);
+    return () => window.removeEventListener('hashchange', followHash);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -114,8 +122,9 @@ function FlightAccount({ user }: { user: User }) {
     async function load() {
       try {
         const { profile: current, approvalsReady: canReview } = await loadProfile(user.id);
+        const team = adminRequested && current.role === 'admin';
         const [rows, accounts] = current.approval_status === 'approved'
-          ? await Promise.all([loadFlights(), current.role === 'admin' ? loadPilots(canReview) : []])
+          ? await Promise.all([loadFlights(team ? undefined : user.id), team ? loadPilots(canReview) : []])
           : [[], []];
         if (active) {
           setProfile(current);
@@ -131,20 +140,21 @@ function FlightAccount({ user }: { user: User }) {
           setNotice('No s’han pogut carregar les dades. Torna-ho a provar.');
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoadedAdminRequest(adminRequested);
+          setLoading(false);
+        }
       }
     }
     void load();
     return () => { active = false; };
-  }, [user.id, reload]);
+  }, [user.id, reload, adminRequested]);
 
   const approved = profile?.approval_status === 'approved';
   const admin = approved && profile.role === 'admin';
 
-  useEffect(() => {
-    if (!admin || loading || window.location.hash !== '#' + accountsSectionId) return;
-    document.getElementById(accountsSectionId)?.scrollIntoView();
-  }, [admin, loading]);
+  const adminView = admin && adminRequested;
+  const viewLoading = loading || loadedAdminRequest !== adminRequested;
   const userName = profile?.display_name || user.email || 'Pilot';
   const pilotNames = new Map(pilots.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
   pilotNames.set(user.id, userName);
@@ -161,11 +171,10 @@ function FlightAccount({ user }: { user: User }) {
     setBusy(true);
     setMessage('');
     try {
-      const { data, error } = await supabase.from('flights')
-        .insert({ pilot_id: user.id, flight_date: date, aircraft, duration_minutes: duration, notes: notes.trim() || null })
-        .select(flightFields).single();
+      const { error } = await supabase.from('flights')
+        .insert({ pilot_id: user.id, flight_date: date, aircraft, duration_minutes: duration, notes: notes.trim() || null });
       if (error) throw error;
-      setFlights(previous => [data, ...previous].sort((a, b) => b.flight_date.localeCompare(a.flight_date)));
+      setReload(value => value + 1);
       setAircraftType('');
       setAircraftModel('');
       setMinutes('');
@@ -198,12 +207,11 @@ function FlightAccount({ user }: { user: User }) {
     setNotice('');
     try {
       const [{ createFlightWorkbook }, rows, accounts] = await Promise.all([
-        import('./flight-export'), loadFlights(), admin ? loadPilots(approvalsReady) : [],
+        import('./flight-export'), loadFlights(adminView ? pilotId : user.id), adminView ? loadPilots(approvalsReady) : [],
       ]);
       const names = new Map(accounts.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
       names.set(user.id, userName);
-      const exported = pilotId ? rows.filter(row => row.pilot_id === pilotId) : rows;
-      const workbook = await createFlightWorkbook(exported, pilotId ? new Map([[pilotId, names.get(pilotId) ?? pilotId]]) : names);
+      const workbook = await createFlightWorkbook(rows, pilotId ? new Map([[pilotId, names.get(pilotId) ?? pilotId]]) : names);
       const link = document.createElement('a');
       const url = URL.createObjectURL(new Blob([workbook], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       link.href = url;
@@ -221,41 +229,23 @@ function FlightAccount({ user }: { user: User }) {
 
   return <main>
     <header>
-      <div><h1>INVALL · Control de vols</h1><p>{userName}{approved ? (admin ? ' · Administrador' : ' · Pilot') : ''}</p></div>
+      <div><h1>INVALL · Control de vols</h1><p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p></div>
       <nav className="actions account-navigation" aria-label="Compte">
-        {admin && <a href={'#' + accountsSectionId}>Administració</a>}
+        {admin && <>
+          <a href="#els-meus-vols" aria-current={!adminView ? 'page' : undefined}>Els meus vols</a>
+          <a href={'#' + accountsSectionId} aria-current={adminView ? 'page' : undefined}>Administració</a>
+        </>}
         <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
       </nav>
     </header>
-    {loading ? <p role="status">Carregant…</p> : !approved ? <section>
+    {viewLoading ? <p role="status">Carregant…</p> : !approved ? <section>
       <h2>{profile ? 'Estat del compte' : 'Accés al llibre de vols'}</h2>
       {profile && <p>{profile.approval_status === 'pending'
         ? 'La teva sol·licitud està pendent d’aprovació.'
         : 'El teu compte està bloquejat. Contacta amb l’administrador.'}</p>}
       <button onClick={() => setReload(value => value + 1)}>Torna a comprovar</button>
     </section> : <>
-      <section>
-        <h2>{admin ? 'Tots els vols' : 'Els meus vols'}</h2>
-        <div className="stats">
-          <div><strong>{flights.length}</strong><span>Vols</span></div>
-          <div><strong>{formatDuration(totalMinutes)}</strong><span>Hores acumulades</span></div>
-        </div>
-        <div className="actions">
-          <button onClick={() => void exportExcel()} disabled={exporting}>{exporting ? 'Preparant Excel…' : 'Descarrega Excel'}</button>
-          <button onClick={() => setReload(value => value + 1)}>Actualitza</button>
-        </div>
-      </section>
-      {admin && <section>
-        <h2>Hores per pilot</h2>
-        <div className="tablewrap"><table>
-          <thead><tr><th>Pilot</th><th>Vols</th><th>Hores totals</th><th>Excel</th></tr></thead>
-          <tbody>{summarizeFlights(flights, pilotNames).map(total => <tr key={total.id}>
-            <td>{total.name}</td><td>{total.count}</td><td>{formatDuration(total.minutes)}</td>
-            <td><button disabled={exporting} onClick={() => void exportExcel(total.id)} aria-label={'Descarrega Excel de ' + total.name}>Descarrega</button></td>
-          </tr>)}</tbody>
-        </table></div>
-      </section>}
-      {admin && <section id={accountsSectionId} aria-labelledby="comptes-de-pilots-titol">
+      {adminView && <section id={accountsSectionId} aria-labelledby="comptes-de-pilots-titol">
         <h2 id="comptes-de-pilots-titol">Comptes de pilots</h2>
         {!approvalsReady ? <p>Falta aplicar la migració d’aprovació a Supabase.</p> : pilots.length === 0 ? <p>Encara no hi ha cap sol·licitud de pilot.</p> : <div className="tablewrap"><table>
           <thead><tr><th>Pilot</th><th>Correu electrònic</th><th>Estat</th><th>Accés</th></tr></thead>
@@ -268,7 +258,28 @@ function FlightAccount({ user }: { user: User }) {
           </tr>)}</tbody>
         </table></div>}
       </section>}
-      <section>
+      <section id={adminView ? undefined : 'els-meus-vols'}>
+        <h2>{adminView ? 'Tots els vols' : 'Els meus vols'}</h2>
+        <div className="stats">
+          <div><strong>{flights.length}</strong><span>Vols</span></div>
+          <div><strong>{formatDuration(totalMinutes)}</strong><span>Hores acumulades</span></div>
+        </div>
+        <div className="actions">
+          <button onClick={() => void exportExcel()} disabled={exporting}>{exporting ? 'Preparant Excel…' : 'Descarrega Excel'}</button>
+          <button onClick={() => setReload(value => value + 1)}>Actualitza</button>
+        </div>
+      </section>
+      {adminView && <section>
+        <h2>Hores per pilot</h2>
+        <div className="tablewrap"><table>
+          <thead><tr><th>Pilot</th><th>Vols</th><th>Hores totals</th><th>Excel</th></tr></thead>
+          <tbody>{summarizeFlights(flights, pilotNames).map(total => <tr key={total.id}>
+            <td>{total.name}</td><td>{total.count}</td><td>{formatDuration(total.minutes)}</td>
+            <td><button disabled={exporting} onClick={() => void exportExcel(total.id)} aria-label={'Descarrega Excel de ' + total.name}>Descarrega</button></td>
+          </tr>)}</tbody>
+        </table></div>
+      </section>}
+      {!adminView && <section>
         <h2>Registra un vol</h2>
         <form onSubmit={addFlight}>
           <label>Data<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
@@ -283,14 +294,14 @@ function FlightAccount({ user }: { user: User }) {
           <button disabled={busy}>Desa el vol</button>
         </form>
         {message && <p role="status">{message}</p>}
-      </section>
+      </section>}
       <section>
         <h2>Historial</h2>
         <div className="tablewrap"><table>
-          <thead><tr><th>Data</th>{admin && <th>Pilot</th>}<th>Aeronau</th><th>Durada</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Data</th>{adminView && <th>Pilot</th>}<th>Aeronau</th><th>Durada</th><th>Notes</th></tr></thead>
           <tbody>{flights.map(flight => <tr key={flight.id}>
             <td>{flight.flight_date}</td>
-            {admin && <td>{pilotNames.get(flight.pilot_id) ?? flight.pilot_id}</td>}
+            {adminView && <td>{pilotNames.get(flight.pilot_id) ?? flight.pilot_id}</td>}
             <td>{flight.aircraft}</td><td>{formatDuration(flight.duration_minutes)}</td><td>{flight.notes || '—'}</td>
           </tr>)}</tbody>
         </table></div>

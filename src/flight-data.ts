@@ -34,9 +34,10 @@ async function readAll<T extends { id: string }>(readPage: (cursor: string | nul
   }
 }
 
-export async function loadFlights() {
+export async function loadFlights(pilotId?: string) {
   const flights = await readAll<Flight>(cursor => {
     const query = supabase.from('flights').select(flightFields).order('id').limit(500);
+    if (pilotId) query.eq('pilot_id', pilotId);
     return cursor ? query.gt('id', cursor) : query;
   });
   return flights.sort((a, b) => b.flight_date.localeCompare(a.flight_date));
