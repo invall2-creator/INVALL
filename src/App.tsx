@@ -7,6 +7,7 @@ import {
 } from './flight-data';
 
 const aircraftOptions = ['DJI 3T', 'DJI 4T', 'DJI 30T', 'DJI 300', 'DJI 400', 'DJI Avata', 'DJI Avata 2', 'Ala fixa Quantum'];
+const accountsSectionId = 'comptes-de-pilots';
 const statusLabels = { approved: 'Aprovat', pending: 'Pendent', blocked: 'Bloquejat' };
 
 export function App() {
@@ -139,6 +140,11 @@ function FlightAccount({ user }: { user: User }) {
 
   const approved = profile?.approval_status === 'approved';
   const admin = approved && profile.role === 'admin';
+
+  useEffect(() => {
+    if (!admin || loading || window.location.hash !== '#' + accountsSectionId) return;
+    document.getElementById(accountsSectionId)?.scrollIntoView();
+  }, [admin, loading]);
   const userName = profile?.display_name || user.email || 'Pilot';
   const pilotNames = new Map(pilots.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
   pilotNames.set(user.id, userName);
@@ -216,7 +222,10 @@ function FlightAccount({ user }: { user: User }) {
   return <main>
     <header>
       <div><h1>INVALL · Control de vols</h1><p>{userName}{approved ? (admin ? ' · Administrador' : ' · Pilot') : ''}</p></div>
-      <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
+      <nav className="actions account-navigation" aria-label="Compte">
+        {admin && <a href={'#' + accountsSectionId}>Administració</a>}
+        <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
+      </nav>
     </header>
     {loading ? <p role="status">Carregant…</p> : !approved ? <section>
       <h2>{profile ? 'Estat del compte' : 'Accés al llibre de vols'}</h2>
@@ -246,8 +255,8 @@ function FlightAccount({ user }: { user: User }) {
           </tr>)}</tbody>
         </table></div>
       </section>}
-      {admin && <section>
-        <h2>Comptes de pilots</h2>
+      {admin && <section id={accountsSectionId} aria-labelledby="comptes-de-pilots-titol">
+        <h2 id="comptes-de-pilots-titol">Comptes de pilots</h2>
         {!approvalsReady ? <p>Falta aplicar la migració d’aprovació a Supabase.</p> : pilots.length === 0 ? <p>Encara no hi ha cap sol·licitud de pilot.</p> : <div className="tablewrap"><table>
           <thead><tr><th>Pilot</th><th>Correu electrònic</th><th>Estat</th><th>Accés</th></tr></thead>
           <tbody>{pilots.map(pilot => <tr key={pilot.id}>
