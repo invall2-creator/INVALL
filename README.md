@@ -15,7 +15,7 @@ Adreça: https://invall2-creator.github.io/INVALL/
 ## Posada en marxa
 1. **Base de dades.** Al Supabase, a *SQL Editor*, executa per ordre els fitxers de `supabase/migrations/` que encara no s'hagin aplicat. L'últim és `20261122_udron_v3.sql`: només afegeix taules, columnes i funcions i no esborra cap dada.
 2. **Recuperació de contrasenya.** A Supabase, ves a *Authentication → URL Configuration* i afegeix `https://invall2-creator.github.io/INVALL/` a *Site URL* i a *Redirect URLs*.
-3. **Publicació automàtica.** Al GitHub, ves a *Settings → Secrets and variables → Actions* i crea els secrets `VITE_SUPABASE_URL` i `VITE_SUPABASE_ANON_KEY`. Fes servir la clau pública *publishable/anon*, mai la *service_role*. A partir d'aquí, cada canvi a `main` es publica sol a la branca `gh-pages`. A *Settings → Pages*, la font ha de ser la branca `gh-pages`.
+3. **Publicació automàtica.** Cada canvi a `main` es publica sol a la branca `gh-pages` (`.github/workflows/deploy.yml`, que ja porta l'adreça i la clau pública de Supabase). A *Settings → Pages*, la font ha de ser la branca `gh-pages`.
 4. **Primer administrador.** Si encara no n'hi ha cap, executa a *SQL Editor*:
    `update public.profiles set role = 'admin', approval_status = 'approved' where id = 'UUID_DE_L_USUARI';`
    Els següents administradors es poden nomenar des de la pestanya *Equip*.
