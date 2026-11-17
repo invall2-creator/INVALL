@@ -218,3 +218,4 @@ a.btn { display: inline-flex; align-items: center; font: 500 13px system-ui, -ap
   .roof-map { height: 52vh; }
   .roof-list { max-height: none; }
 }
+.roof-dist { color: #ffb37a; font-weight: 600; margin-right: 6px; }

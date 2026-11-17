@@ -116,3 +116,14 @@ export function isMissingMigration(error: unknown) {
   const code = (error as { code?: string } | null)?.code;
   return code === '42P01' || code === '42703' || code === 'PGRST202' || code === 'PGRST205' || code === 'PGRST204';
 }
+
+export type AppSession = { id: string; user_id: string; started_at: string; last_seen_at: string };
+
+export async function loadSessions(days = 7): Promise<AppSession[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await supabase.from('app_sessions')
+    .select('id,user_id,started_at,last_seen_at').gte('last_seen_at', since)
+    .order('last_seen_at', { ascending: false }).limit(1000);
+  if (error) throw error;
+  return data as AppSession[];
+}

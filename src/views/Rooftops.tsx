@@ -27,6 +27,15 @@ function emailLinks(text: string) {
   return text.split(/([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/g).map((part, i) => /@/.test(part) && /\.\w+$/.test(part)
     ? <a key={i} href={'mailto:' + part}>{part}</a> : <span key={i}>{part}</span>);
 }
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const fmtKm = (km: number) => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(km < 10 ? 1 : 0).replace('.', ',')} km`;
+type MyPos = { lat: number; lng: number; acc: number };
+
 const address = (r: Rooftop) => [r.street, r.town].filter(Boolean).join(' · ');
 
 export function Rooftops({ data }: { data: AppData }) {
@@ -41,6 +50,12 @@ export function Rooftops({ data }: { data: AppData }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
+  const [myPos, setMyPos] = useState<MyPos | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [geoError, setGeoError] = useState('');
+  const watchId = useRef<number | null>(null);
+  const meLayer = useRef<L.LayerGroup | null>(null);
+  const centeredOnMe = useRef(false);
 
   const mapBox = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
@@ -63,8 +78,9 @@ export function Rooftops({ data }: { data: AppData }) {
   const visible = useMemo(() => {
     if (!rows) return [];
     const q = norm(query.trim());
-    return q ? rows.filter(r => norm([r.name, r.street, r.town, r.contact, r.notes].join(' ')).includes(q)) : rows;
-  }, [rows, query]);
+    const list = q ? rows.filter(r => norm([r.name, r.street, r.town, r.contact, r.notes].join(' ')).includes(q)) : rows;
+    return myPos ? [...list].sort((a, b) => distanceKm(myPos, a) - distanceKm(myPos, b)) : list;
+  }, [rows, query, myPos]);
   const selected = rows?.find(r => r.id === selectedId) ?? null;
 
   // Map setup (once)
@@ -75,6 +91,7 @@ export function Rooftops({ data }: { data: AppData }) {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(m);
     layer.current = L.layerGroup().addTo(m);
+    meLayer.current = L.layerGroup().addTo(m);
     m.on('click', e => {
       if (!editingRef.current) return;
       setDraft(prev => prev && { ...prev, lat: e.latlng.lat.toFixed(6), lng: e.latlng.lng.toFixed(6) });
@@ -123,6 +140,38 @@ export function Rooftops({ data }: { data: AppData }) {
       }).addTo(m);
     }
   }, [draft?.lat, draft?.lng, editingId]);
+
+  // My position on the map
+  useEffect(() => {
+    const m = map.current, group = meLayer.current;
+    if (!m || !group) return;
+    group.clearLayers();
+    if (!myPos) return;
+    L.circle([myPos.lat, myPos.lng], { radius: myPos.acc, color: '#4f93e6', weight: 1, fillColor: '#4f93e6', fillOpacity: 0.12, interactive: false }).addTo(group);
+    L.circleMarker([myPos.lat, myPos.lng], { radius: 8, color: '#ffffff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1 })
+      .bindTooltip('Ets aquí', { direction: 'top', offset: [0, -6] }).addTo(group);
+    if (!centeredOnMe.current) { m.flyTo([myPos.lat, myPos.lng], 15, { duration: 0.8 }); centeredOnMe.current = true; }
+  }, [myPos]);
+  useEffect(() => () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); }, []);
+
+  function locateMe() {
+    setGeoError('');
+    if (myPos) { map.current?.flyTo([myPos.lat, myPos.lng], Math.max(map.current.getZoom(), 15), { duration: 0.6 }); return; }
+    if (!('geolocation' in navigator)) { setGeoError('Aquest dispositiu no permet obtenir la ubicació.'); return; }
+    setLocating(true);
+    centeredOnMe.current = false;
+    watchId.current = navigator.geolocation.watchPosition(
+      p => { setLocating(false); setMyPos({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }); },
+      err => {
+        setLocating(false);
+        setGeoError(err.code === err.PERMISSION_DENIED
+          ? "No tens permís de ubicació. Activa'l per a aquesta web a la configuració del navegador o del mòbil i torna-ho a provar."
+          : "No s'ha pogut trobar la teva ubicació. Prova-ho a l'exterior o amb el GPS activat.");
+        if (watchId.current !== null) { navigator.geolocation.clearWatch(watchId.current); watchId.current = null; }
+      },
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
+    );
+  }
 
   function focus(r: Rooftop) {
     setSelectedId(r.id);
@@ -194,8 +243,12 @@ export function Rooftops({ data }: { data: AppData }) {
   return <section className="view" aria-labelledby="terrats-titol">
     <div className="view-head">
       <h2 id="terrats-titol">Terrats {rows && <span className="hint">· {rows.length}</span>}</h2>
-      {data.isAdmin && !editingId && <button type="button" onClick={() => startEdit(null)}>Afegeix terrat</button>}
+      <div className="actions">
+        <button type="button" className="primary" onClick={locateMe} disabled={locating}>{locating ? 'Buscant…' : myPos ? 'Centra on soc' : 'On soc'}</button>
+        {data.isAdmin && !editingId && <button type="button" onClick={() => startEdit(null)}>Afegeix terrat</button>}
+      </div>
     </div>
+    {geoError && <p className="err" role="alert">{geoError}</p>}
     {problem && <p className="err">{problem}</p>}
     {notice && <p className="ok" role="status">{notice}</p>}
     <div className="roof-layout">
@@ -229,6 +282,7 @@ export function Rooftops({ data }: { data: AppData }) {
             <div className="view-head"><h3 className="roof-title">{selected.name}</h3><button type="button" className="small" onClick={() => setSelectedId(null)} aria-label="Tanca la fitxa">✕</button></div>
             <dl className="kv">
               {address(selected) && <><dt>Adreça</dt><dd>{address(selected)}</dd></>}
+              {myPos && <><dt>Distància</dt><dd>{fmtKm(distanceKm(myPos, selected))} en línia recta</dd></>}
               {selected.contact && <><dt>Contacte</dt><dd>{selected.contact}</dd></>}
               {selected.phones && <><dt>Telèfons</dt><dd>{phoneLinks(selected.phones)}</dd></>}
               {selected.email && <><dt>Correu</dt><dd className="wrap-any">{emailLinks(selected.email)}</dd></>}
@@ -243,12 +297,12 @@ export function Rooftops({ data }: { data: AppData }) {
           </div>}
           <label htmlFor="t-cerca" className="sr-only">Cerca terrats</label>
           <input id="t-cerca" type="search" placeholder="Cerca per nom, carrer, població o contacte…" value={query} onChange={e => setQuery(e.target.value)} />
-          <p className="hint">{rows ? `${visible.length} de ${rows.length} terrats` : 'Carregant…'}</p>
+          <p className="hint">{rows ? `${visible.length} de ${rows.length} terrats${myPos ? ' · ordenats per distància' : ''}` : 'Carregant…'}</p>
           <ul className="roof-list">
             {visible.map(r => <li key={r.id}>
               <button type="button" className={r.id === selectedId ? 'on' : undefined} onClick={() => focus(r)}>
                 <b>{r.name}</b>
-                <span>{address(r) || 'Sense adreça'}</span>
+                <span>{myPos && <strong className="roof-dist">{fmtKm(distanceKm(myPos, r))}</strong>}{address(r) || 'Sense adreça'}</span>
               </button>
             </li>)}
           </ul>
