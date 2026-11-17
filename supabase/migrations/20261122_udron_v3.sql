@@ -254,4 +254,13 @@ grant execute on function public.restore_flight(uuid) to authenticated;
 grant execute on function public.list_team() to authenticated;
 grant execute on function public.set_member_role(uuid, text) to authenticated;
 
+-- Reforç: només lectura des del client; les escriptures passen per les funcions del servidor.
+revoke all on public.flight_changes from anon;
+revoke insert, update, delete, truncate, references, trigger on public.flight_changes from authenticated;
+revoke all on public.aircraft from anon;
+revoke delete, truncate, references, trigger on public.aircraft from authenticated;
+revoke execute on function public.create_pilot_profile() from public, anon, authenticated;
+revoke execute on function public.is_admin() from public, anon;
+grant execute on function public.is_admin() to authenticated;
+
 commit;
