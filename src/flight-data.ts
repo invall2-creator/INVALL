@@ -1,6 +1,6 @@
 import { supabase } from './lib/supabase';
 
-export type ApprovalStatus = 'pending' | 'approved' | 'blocked';
+export type ApprovalStatus = 'pending' | 'approved' | 'blocked' | 'removed';
 export type Role = 'pilot' | 'admin';
 
 export type Flight = {
