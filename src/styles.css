@@ -28,11 +28,11 @@ body {
 }
 body::before {
   /* Escut retallat amb la seva forma (PNG/WebP transparent): es veu sencer, sense vores tallades. */
-  position: fixed; top: 50%; left: 50%;
-  width: min(80vw, 64vh, 560px); aspect-ratio: 725 / 812;
-  transform: translate(-50%, -46%);
+  position: fixed; top: calc(50% + 58px); left: 50%;
+  width: min(70vw, 46vh, 420px); aspect-ratio: 946 / 1548;
+  transform: translate(-50%, -50%);
   background: url('/branding/escut-fons.webp') center / contain no-repeat;
-  content: ''; opacity: .2; pointer-events: none; z-index: -1;
+  content: ''; opacity: .16; pointer-events: none; z-index: -1;
 }
 h1, h2, h3 { margin: 0; text-wrap: balance; }
 h2 { font-size: 20px; }
