@@ -111,3 +111,34 @@ th { color: #becce1; }
 
 .remove-flight { background: #8d2639; }
 .remove-flight:hover:enabled { background: #a53046; }
+
+.access-header,
+.flight-header {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.flight-header {
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
+  grid-template-areas: "identity navigation badge";
+}
+
+.flight-identity { grid-area: identity; }
+.flight-header .account-navigation { grid-area: navigation; justify-content: flex-end; }
+.flight-header .unit-badge { grid-area: badge; }
+
+.unit-badge {
+  display: block;
+  width: 48px;
+  height: 72px;
+  border-radius: 8px;
+}
+
+@media (max-width: 760px) {
+  .flight-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "identity badge" "navigation navigation";
+  }
+  .flight-header .account-navigation { justify-content: flex-start; }
+}
