@@ -2,6 +2,7 @@
 
 body {
   min-height: 100vh;
+  isolation: isolate;
   margin: 0;
   border-top: 4px solid #c9273c;
   background:
@@ -12,7 +13,18 @@ body {
   font: 16px system-ui, -apple-system, sans-serif;
 }
 
-main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+body::before {
+  position: fixed;
+  inset: 0;
+  background: url('/branding/escut-fons.jpg') center 46% / min(86vw, 70vh, 680px) auto no-repeat;
+  content: '';
+  filter: blur(2px);
+  mix-blend-mode: screen;
+  opacity: .38;
+  pointer-events: none;
+}
+
+main { position: relative; max-width: 1000px; margin: 0 auto; padding: 24px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 h1 { font-size: 25px; }
 h2 { font-size: 19px; }
@@ -23,7 +35,7 @@ section {
   padding: 22px;
   border: 1px solid #405777;
   border-radius: 14px;
-  background: #14243e;
+  background: #14243edb;
 }
 
 main > section:first-of-type { border-top: 2px solid #c9273c; }
@@ -111,34 +123,3 @@ th { color: #becce1; }
 
 .remove-flight { background: #8d2639; }
 .remove-flight:hover:enabled { background: #a53046; }
-
-.access-header,
-.flight-header {
-  display: grid;
-  align-items: start;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.flight-header {
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
-  grid-template-areas: "identity navigation badge";
-}
-
-.flight-identity { grid-area: identity; }
-.flight-header .account-navigation { grid-area: navigation; justify-content: flex-end; }
-.flight-header .unit-badge { grid-area: badge; }
-
-.unit-badge {
-  display: block;
-  width: 48px;
-  height: 72px;
-  border-radius: 8px;
-}
-
-@media (max-width: 760px) {
-  .flight-header {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "identity badge" "navigation navigation";
-  }
-  .flight-header .account-navigation { justify-content: flex-start; }
-}

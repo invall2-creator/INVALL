@@ -17,10 +17,6 @@ function currentSection() {
   return window.location.hash.slice(1);
 }
 
-function UnitBadge() {
-  return <img className="unit-badge" src={import.meta.env.BASE_URL + 'branding/escut-udron.jpg'}
-    width="100" height="150" alt="Escut de la Unitat de Drons dels Mossos d’Esquadra" />;
-}
 const statusLabels = { approved: 'Aprovat', pending: 'Pendent', blocked: 'Bloquejat' };
 
 export function App() {
@@ -84,10 +80,7 @@ function AccessForm() {
   }
 
   return <main>
-    <header className="access-header">
-      <h1>UDRON · Control de vols</h1>
-      <UnitBadge />
-    </header>
+    <h1>UDRON · Control de vols</h1>
     <section>
       <h2>{registration ? 'Sol·licita un compte de pilot' : 'Accés de pilots'}</h2>
       <form onSubmit={submit}>
@@ -264,8 +257,8 @@ function FlightAccount({ user }: { user: User }) {
   }
 
   return <main>
-    <header className="flight-header">
-      <div className="flight-identity">
+    <header>
+      <div>
         <h1>UDRON · Control de vols</h1>
         <p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p>
         {approved && <ProfilePhoto userId={user.id} name={userName} />}
@@ -279,7 +272,6 @@ function FlightAccount({ user }: { user: User }) {
         </>}
         <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
       </nav>
-      <UnitBadge />
     </header>
     {viewLoading ? <p role="status">Carregant…</p> : !approved ? <section>
       <h2>{profile ? 'Estat del compte' : 'Accés al llibre de vols'}</h2>
