@@ -219,3 +219,8 @@ a.btn { display: inline-flex; align-items: center; font: 500 13px system-ui, -ap
   .roof-list { max-height: none; }
 }
 .roof-dist { color: #ffb37a; font-weight: 600; margin-right: 6px; }
+
+.place-search { display: flex; gap: 8px; flex-wrap: wrap; }
+.place-search input { flex: 1 1 320px; }
+.place-results ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.roof-pin.place span { background: #e9b13c; }
