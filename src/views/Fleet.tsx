@@ -13,6 +13,22 @@ export function Fleet({ data }: { data: AppData }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<Aircraft | null>(null);
+  const [notice, setNotice] = useState('');
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    const craft = deleting;
+    setBusy(true);
+    try {
+      const { data: gone, error: deleteError } = await supabase.from('aircraft').delete().eq('id', craft.id).select('id');
+      if (deleteError || !gone?.length) throw deleteError ?? new Error('not deleted');
+      setNotice(`${craft.model} s'ha esborrat de la flota. Els seus vols es conserven amb el nom de l'aeronau.`);
+      data.reload();
+    } catch {
+      setNotice("No s'ha pogut esborrar l'aeronau. Només l'administració pot fer-ho.");
+    } finally { setBusy(false); setDeleting(null); }
+  }
 
   function open(craft: Aircraft | 'new') {
     const a = craft === 'new' ? null : craft;
@@ -51,6 +67,7 @@ export function Fleet({ data }: { data: AppData }) {
   return <section className="view" aria-labelledby="flota-titol">
     <div className="panel">
       <div className="view-head"><h2 id="flota-titol">Flota</h2>{data.isAdmin && <button type="button" onClick={() => open('new')}>Afegeix aeronau</button>}</div>
+      {notice && <p className="ok" role="status">{notice}</p>}
       {!data.aircraft.length ? <p className="empty">Encara no hi ha cap aeronau.</p> : <div className="fleet">
         {data.aircraft.map(a => {
           const flights = data.flights.filter(f => f.aircraft_id === a.id && !f.deleted_at);
@@ -67,11 +84,24 @@ export function Fleet({ data }: { data: AppData }) {
               <div className={'progress ' + tone} role="img" aria-label={`${Math.round(pct)} % de l'interval de revisió`}><div style={{ width: `${pct}%` }} /></div>
               {pct >= 100 && <p className="err">Revisió vençuda</p>}
             </> : <p className="hint">Sense pla de revisió</p>}
-            {data.isAdmin && <div><button className="small" onClick={() => open(a)}>Edita</button></div>}
+            {data.isAdmin && <div className="actions">
+              <button className="small" onClick={() => open(a)}>Edita</button>
+              <button className="small danger" onClick={() => { setNotice(''); setDeleting(a); }}>Esborra</button>
+            </div>}
           </div>;
         })}
       </div>}
     </div>
+    <Modal open={!!deleting} onClose={() => setDeleting(null)} labelledBy="esborra-aeronau-titol">
+      {deleting && <div className="dlg-form">
+        <h2 id="esborra-aeronau-titol">Esborrar {deleting.model}?</h2>
+        <p>Desapareixerà de la flota i ja no es podrà triar en registrar vols. Els {data.flights.filter(f => f.aircraft_id === deleting.id && !f.deleted_at).length} vols que s'hi van fer es conserven amb el nom «{deleting.model}». Si només està fora de servei temporalment, és millor canviar-ne l'estat a «En manteniment» o «Baixa» des d'«Edita».</p>
+        <div className="foot">
+          <button type="button" onClick={() => setDeleting(null)}>Cancel·la</button>
+          <button type="button" className="primary danger-fill" disabled={busy} onClick={() => void confirmDelete()}>Esborra</button>
+        </div>
+      </div>}
+    </Modal>
     <Modal open={!!editing} onClose={() => setEditing(null)} labelledBy="aeronau-titol">
       {draft && <form onSubmit={save} className="dlg-form">
         <h2 id="aeronau-titol">{editing === 'new' ? 'Nova aeronau' : "Edita l'aeronau"}</h2>

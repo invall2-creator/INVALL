@@ -24,6 +24,19 @@ export function parseDuration(value: string): number | null {
   return Number.NaN;
 }
 
+/** Accepts 24 h times typed freely: "10:15", "1015", "10.15", "10h15", "9:5", "9". Returns "HH:MM" or null. */
+export function parseClock(value: string, strict = false): string | null {
+  const text = value.trim().toLowerCase().replace(/[.h ]/g, ':');
+  // While typing, only accept complete times ("10:15" or "1015") so the total does not jump around.
+  if (strict && !/^\d{1,2}:\d{2}$/.test(text) && !/^\d{4}$/.test(text)) return null;
+  let m = text.match(/^(\d{1,2})(?::(\d{1,2}))?$/) ?? text.match(/^(\d{1,2})(\d{2})$/);
+  if (!m && /^\d{3,4}$/.test(text)) m = [text, text.slice(0, -2), text.slice(-2)] as RegExpMatchArray;
+  if (!m) return null;
+  const h = Number(m[1]), min = Number(m[2] ?? 0);
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 export function minutesBetween(start: string, end: string) {
   if (!start || !end) return null;
   const [h1, m1] = start.split(':').map(Number);
