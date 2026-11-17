@@ -144,12 +144,12 @@ export function FlightForm({ data, editing, onDone }: { data: AppData; editing: 
           <select id={id('aeronau')} value={fields.aircraft_id} onChange={e => set('aircraft_id', e.target.value)} required>
             <option value="">{editing && !editing.aircraft_id ? editing.aircraft : "Tria l'aeronau"}</option>
             {usable.map(a => <option key={a.id} value={a.id}>{a.model}{a.status === 'manteniment' ? ' (en manteniment)' : ''}</option>)}
-            <option value={NEW_CRAFT}>+ Una altra aeronau…</option>
+            {data.isAdmin && <option value={NEW_CRAFT}>+ Una altra aeronau…</option>}
           </select>
         </label>
         {fields.aircraft_id === NEW_CRAFT && <label className="span-2" htmlFor={id('aeronau-nova')}>Marca i model de l'aeronau nova
           <input id={id('aeronau-nova')} maxLength={100} placeholder="p. ex. DJI Matrice 350 RTK" value={fields.new_aircraft ?? ''} onChange={e => set('new_aircraft', e.target.value)} autoFocus />
-          <span className="opt">S'afegirà a la flota i la podrà triar tothom</span>
+          <span className="opt">S'afegirà a la flota i la podran triar tots els pilots</span>
         </label>}
         <label className="span-2" htmlFor={id('lloc')}>Lloc o municipi<input id={id('lloc')} list="llocs" maxLength={120} placeholder="p. ex. Montserrat" value={fields.place} onChange={e => set('place', e.target.value)} /></label>
         <datalist id="llocs">{places.map(p => <option key={p} value={p} />)}</datalist>
