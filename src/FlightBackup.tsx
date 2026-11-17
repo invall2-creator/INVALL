@@ -1,16 +1,10 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { supabase } from './lib/supabase';
-import { loadFlights, loadPilots } from './flight-data';
-
-const workbookType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+import type { AppData } from './context';
+import { todayISO } from './format';
 const expirySeconds = 24 * 60 * 60;
 
-export function FlightBackup({ sectionId, userId, name, approvalsReady }: {
-  sectionId: string;
-  userId: string;
-  name: string;
-  approvalsReady: boolean;
-}) {
+export function FlightBackup({ data }: { data: AppData }) {
   const [email, setEmail] = useState('');
   const [link, setLink] = useState('');
   const [busy, setBusy] = useState(false);
@@ -23,23 +17,18 @@ export function FlightBackup({ sectionId, userId, name, approvalsReady }: {
     setMessage('');
     setBusy(true);
     try {
-      const [{ createFlightWorkbook }, flights, pilots] = await Promise.all([
-        import('./flight-export'), loadFlights(), loadPilots(approvalsReady),
-      ]);
-      const names = new Map(pilots.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
-      names.set(userId, name);
-      const buffer = await createFlightWorkbook(flights, names);
-      const date = new Date().toLocaleDateString('en-CA');
-      const filename = 'UDRON-copia-de-vols-' + date + '.xlsx';
-      const path = userId + '/' + crypto.randomUUID() + '-' + filename;
+      const { createFlightWorkbook, WORKBOOK_TYPE } = await import('./flight-export');
+      const buffer = await createFlightWorkbook(data.flights.filter(f => !f.deleted_at), data);
+      const filename = 'UDRON-copia-de-vols-' + todayISO() + '.xlsx';
+      const path = data.user.id + '/' + crypto.randomUUID() + '-' + filename;
       const storage = supabase.storage.from('flight-backups');
-      const { error: uploadError } = await storage.upload(path, new Blob([buffer], { type: workbookType }), {
-        contentType: workbookType, cacheControl: '0',
+      const { error: uploadError } = await storage.upload(path, new Blob([buffer], { type: WORKBOOK_TYPE }), {
+        contentType: WORKBOOK_TYPE, cacheControl: '0',
       });
       if (uploadError) throw uploadError;
-      const { data, error } = await storage.createSignedUrl(path, expirySeconds, { download: filename });
+      const { data: signed, error } = await storage.createSignedUrl(path, expirySeconds, { download: filename });
       if (error) throw error;
-      setLink(data.signedUrl);
+      setLink(signed.signedUrl);
       setMessage('Enllaç creat.');
     } catch {
       setMessage('No s’ha pogut crear la còpia de seguretat. Torna-ho a provar.');
@@ -63,11 +52,11 @@ export function FlightBackup({ sectionId, userId, name, approvalsReady }: {
   const draftUrl = 'mailto:' + encodeURIComponent(email.trim()).replace('%40', '@') +
     '?subject=' + encodeURIComponent('UDRON · Còpia de vols') + '&body=' + encodeURIComponent(mailBody);
 
-  return <section id={sectionId} aria-labelledby="backup-title">
+  return <section className="panel" aria-labelledby="backup-title">
     <h2 id="backup-title">Còpia de seguretat</h2>
     <p>Genera un fitxer Excel amb tots els vols actius i les hores per pilot. Qualsevol persona que tingui l’enllaç el podrà descarregar durant 24 hores.</p>
     <form onSubmit={createBackup}>
-      <button disabled={busy}>{busy ? 'Preparant la còpia…' : 'Genera l’enllaç'}</button>
+      <button className="primary" disabled={busy}>{busy ? 'Preparant la còpia…' : 'Genera l’enllaç'}</button>
     </form>
     {link && <div className="backup-share">
       <label>Enllaç de descàrrega<input ref={linkField} type="url" readOnly value={link} /></label>
