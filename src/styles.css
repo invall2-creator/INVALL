@@ -233,3 +233,5 @@ a.btn.nav-waze { background: #33ccff; border-color: #33ccff; color: #05202b; }
 .roof-go a { display: grid; place-items: center; min-width: 56px; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; }
 .roof-go a.nav-google { background: #1a73e8; color: #fff; }
 .roof-go a.nav-waze { background: #33ccff; color: #05202b; }
+
+.update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 1000; display: flex; gap: 12px; align-items: center; background: #1d3b66; border: 1px solid var(--accent); color: var(--ink); padding: 10px 14px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.45); max-width: calc(100% - 32px); }

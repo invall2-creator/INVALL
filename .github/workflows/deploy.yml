@@ -29,8 +29,9 @@ jobs:
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://luyagrweeilatutliuwe.supabase.co' }}
+          VITE_APP_VERSION: ${{ github.sha }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_Z-RXCkp4yjc2Bs7ewnijvg_CcwzKHfb' }}
-      - run: touch dist/.nojekyll
+      - run: touch dist/.nojekyll && echo '{"version":"${{ github.sha }}"}' > dist/version.json
       - name: Publica dist/ a gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
