@@ -27,12 +27,12 @@ body {
   font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 body::before {
+  /* Escut retallat amb la seva forma (PNG/WebP transparent): es veu sencer, sense vores tallades. */
   position: fixed; top: 50%; left: 50%;
-  width: min(86vw, 70vh, 680px); aspect-ratio: 800 / 866;
-  transform: translate(-50%, -50%);
-  background: url('/branding/escut-fons.jpg') center / contain no-repeat;
-  clip-path: polygon(3% 4%, 96% 4%, 94% 54%, 91% 68%, 85% 80%, 76% 88%, 65% 95%, 56% 98%, 49% 99%, 39% 96%, 28% 91%, 18% 84%, 12% 73%, 7% 60%);
-  content: ''; filter: blur(2px); mix-blend-mode: screen; opacity: .22; pointer-events: none; z-index: -1;
+  width: min(80vw, 64vh, 560px); aspect-ratio: 725 / 812;
+  transform: translate(-50%, -46%);
+  background: url('/branding/escut-fons.webp') center / contain no-repeat;
+  content: ''; opacity: .2; pointer-events: none; z-index: -1;
 }
 h1, h2, h3 { margin: 0; text-wrap: balance; }
 h2 { font-size: 20px; }
