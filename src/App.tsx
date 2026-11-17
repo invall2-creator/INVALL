@@ -8,6 +8,12 @@ import {
 
 const aircraftOptions = ['DJI 3T', 'DJI 4T', 'DJI 30T', 'DJI 300', 'DJI 400', 'DJI Avata', 'DJI Avata 2', 'Ala fixa Quantum'];
 const accountsSectionId = 'comptes-de-pilots';
+const personalSectionId = 'els-meus-vols';
+const excelSectionId = 'excel';
+
+function currentSection() {
+  return window.location.hash.slice(1);
+}
 const statusLabels = { approved: 'Aprovat', pending: 'Pendent', blocked: 'Bloquejat' };
 
 export function App() {
@@ -101,7 +107,9 @@ function FlightAccount({ user }: { user: User }) {
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
-  const [adminRequested, setAdminRequested] = useState(() => window.location.hash === '#' + accountsSectionId);
+  const [section, setSection] = useState(currentSection);
+  const adminRequested = section === accountsSectionId;
+  const excelView = section === excelSectionId;
   const [loadedAdminRequest, setLoadedAdminRequest] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -109,7 +117,7 @@ function FlightAccount({ user }: { user: User }) {
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    const followHash = () => setAdminRequested(window.location.hash === '#' + accountsSectionId);
+    const followHash = () => setSection(currentSection());
     window.addEventListener('hashchange', followHash);
     return () => window.removeEventListener('hashchange', followHash);
   }, []);
@@ -231,9 +239,10 @@ function FlightAccount({ user }: { user: User }) {
     <header>
       <div><h1>INVALL · Control de vols</h1><p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p></div>
       <nav className="actions account-navigation" aria-label="Compte">
-        {admin && <>
-          <a href="#els-meus-vols" aria-current={!adminView ? 'page' : undefined}>Els meus vols</a>
-          <a href={'#' + accountsSectionId} aria-current={adminView ? 'page' : undefined}>Administració</a>
+        {approved && <>
+          <a href={'#' + personalSectionId} aria-current={!adminView && !excelView ? 'page' : undefined}>Els meus vols</a>
+          <a href={'#' + excelSectionId} aria-current={excelView ? 'page' : undefined}>Excel</a>
+          {admin && <a href={'#' + accountsSectionId} aria-current={adminView ? 'page' : undefined}>Administració</a>}
         </>}
         <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
       </nav>
@@ -258,14 +267,15 @@ function FlightAccount({ user }: { user: User }) {
           </tr>)}</tbody>
         </table></div>}
       </section>}
-      <section id={adminView ? undefined : 'els-meus-vols'}>
-        <h2>{adminView ? 'Tots els vols' : 'Els meus vols'}</h2>
+      <section id={adminView ? undefined : excelView ? excelSectionId : personalSectionId}>
+        <h2>{adminView ? 'Tots els vols' : excelView ? 'Exporta el llibre de vols a Excel' : 'Els meus vols'}</h2>
+        {excelView && <p>Descarrega els teus vols i el total d’hores en un fitxer .xlsx.</p>}
         <div className="stats">
           <div><strong>{flights.length}</strong><span>Vols</span></div>
           <div><strong>{formatDuration(totalMinutes)}</strong><span>Hores acumulades</span></div>
         </div>
         <div className="actions">
-          <button onClick={() => void exportExcel()} disabled={exporting}>{exporting ? 'Preparant Excel…' : 'Descarrega Excel'}</button>
+          {(adminView || excelView) && <button onClick={() => void exportExcel()} disabled={exporting}>{exporting ? 'Preparant Excel…' : 'Descarrega Excel'}</button>}
           <button onClick={() => setReload(value => value + 1)}>Actualitza</button>
         </div>
       </section>
@@ -279,7 +289,7 @@ function FlightAccount({ user }: { user: User }) {
           </tr>)}</tbody>
         </table></div>
       </section>}
-      {!adminView && <section>
+      {!adminView && !excelView && <section>
         <h2>Registra un vol</h2>
         <form onSubmit={addFlight}>
           <label>Data<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
@@ -295,7 +305,7 @@ function FlightAccount({ user }: { user: User }) {
         </form>
         {message && <p role="status">{message}</p>}
       </section>}
-      <section>
+      {!excelView && <section>
         <h2>Historial</h2>
         <div className="tablewrap"><table>
           <thead><tr><th>Data</th>{adminView && <th>Pilot</th>}<th>Aeronau</th><th>Durada</th><th>Notes</th></tr></thead>
@@ -305,7 +315,7 @@ function FlightAccount({ user }: { user: User }) {
             <td>{flight.aircraft}</td><td>{formatDuration(flight.duration_minutes)}</td><td>{flight.notes || '—'}</td>
           </tr>)}</tbody>
         </table></div>
-      </section>
+      </section>}
     </>}
     {notice && <p role="status">{notice}</p>}
   </main>;
