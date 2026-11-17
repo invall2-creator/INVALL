@@ -107,6 +107,7 @@ function FlightAccount({ user }: { user: User }) {
   const [aircraftModel, setAircraftModel] = useState('');
   const [minutes, setMinutes] = useState('');
   const [notes, setNotes] = useState('');
+  const [editingFlight, setEditingFlight] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -173,7 +174,28 @@ function FlightAccount({ user }: { user: User }) {
   pilotNames.set(user.id, userName);
   const totalMinutes = flights.reduce((sum, row) => sum + row.duration_minutes, 0);
 
-  async function addFlight(event: FormEvent) {
+  function clearFlightFields() {
+    setEditingFlight(null);
+    setAircraftType('');
+    setAircraftModel('');
+    setMinutes('');
+    setNotes('');
+  }
+
+  function startEditingFlight(flight: Flight) {
+    const listedAircraft = aircraftOptions.includes(flight.aircraft);
+    setEditingFlight(flight.id);
+    setDate(flight.flight_date);
+    setAircraftType(listedAircraft ? flight.aircraft : 'other');
+    setAircraftModel(listedAircraft ? '' : flight.aircraft);
+    setMinutes(String(flight.duration_minutes));
+    setNotes(flight.notes ?? '');
+    setMessage('');
+    document.getElementById('formulari-de-vol')?.scrollIntoView({ block: 'start' });
+    document.getElementById('data-del-vol')?.focus({ preventScroll: true });
+  }
+
+  async function saveFlight(event: FormEvent) {
     event.preventDefault();
     const duration = Number(minutes);
     const aircraft = aircraftType === 'other' ? aircraftModel.trim() : aircraftType;
@@ -184,15 +206,29 @@ function FlightAccount({ user }: { user: User }) {
     setBusy(true);
     setMessage('');
     try {
-      const { error } = await supabase.from('flights')
-        .insert({ pilot_id: user.id, flight_date: date, aircraft, duration_minutes: duration, notes: notes.trim() || null });
-      if (error) throw error;
+      const cleanNotes = notes.trim() || null;
+      if (editingFlight) {
+        const { data, error } = await supabase.rpc('edit_own_flight', {
+          target_id: editingFlight,
+          new_date: date,
+          new_aircraft: aircraft,
+          new_duration: duration,
+          new_notes: cleanNotes,
+        });
+        if (error) throw error;
+        if (!data) {
+          setMessage('Aquest vol ja no està disponible per editar-lo.');
+          setReload(value => value + 1);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from('flights')
+          .insert({ pilot_id: user.id, flight_date: date, aircraft, duration_minutes: duration, notes: cleanNotes });
+        if (error) throw error;
+      }
       setReload(value => value + 1);
-      setAircraftType('');
-      setAircraftModel('');
-      setMinutes('');
-      setNotes('');
-      setMessage('Vol registrat.');
+      clearFlightFields();
+      setMessage(editingFlight ? 'Canvis desats.' : 'Vol registrat.');
     } catch {
       setMessage('No s’ha pogut desar el vol.');
     } finally {
@@ -315,10 +351,10 @@ function FlightAccount({ user }: { user: User }) {
           </tr>)}</tbody>
         </table></div>
       </section>}
-      {!adminView && !excelView && !manageView && <section>
-        <h2>Registra un vol</h2>
-        <form onSubmit={addFlight}>
-          <label>Data<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
+      {!adminView && !excelView && !manageView && <section id="formulari-de-vol">
+        <h2>{editingFlight ? 'Edita el vol' : 'Registra un vol'}</h2>
+        <form onSubmit={saveFlight}>
+          <label>Data<input id="data-del-vol" type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
           <label>Tipus d’aeronau<select value={aircraftType} onChange={e => setAircraftType(e.target.value)} required>
             <option value="">Selecciona un tipus</option>
             {aircraftOptions.map(option => <option key={option}>{option}</option>)}
@@ -327,19 +363,23 @@ function FlightAccount({ user }: { user: User }) {
           {aircraftType === 'other' && <label>Marca i model<input value={aircraftModel} onChange={e => setAircraftModel(e.target.value)} maxLength={100} required /></label>}
           <label>Durada (minuts)<input type="number" min="1" max="1440" step="1" value={minutes} onChange={e => setMinutes(e.target.value)} required /></label>
           <label>Observacions<textarea value={notes} onChange={e => setNotes(e.target.value)} maxLength={500} /></label>
-          <button disabled={busy}>Desa el vol</button>
+          {editingFlight ? <div className="actions">
+            <button disabled={busy}>Desa els canvis</button>
+            <button type="button" disabled={busy} onClick={() => { clearFlightFields(); setDate(new Date().toLocaleDateString('en-CA')); setMessage(''); }}>Cancel·la</button>
+          </div> : <button disabled={busy}>Desa el vol</button>}
         </form>
         {message && <p role="status">{message}</p>}
       </section>}
       {!excelView && <section id={manageView ? manageSectionId : undefined}>
         <h2>{manageView ? 'Gestiona els vols' : 'Historial'}</h2>
         {flights.length === 0 ? <p>Encara no hi ha cap vol.</p> : <div className="tablewrap"><table>
-          <thead><tr><th>Data</th>{adminView && <th>Pilot</th>}<th>Aeronau</th><th>Durada</th><th>Notes</th>{manageView && <th>Accions</th>}</tr></thead>
+          <thead><tr><th>Data</th>{adminView && <th>Pilot</th>}<th>Aeronau</th><th>Durada</th><th>Notes</th>{!adminView && <th>Accions</th>}</tr></thead>
           <tbody>{flights.map(flight => <tr key={flight.id}>
             <td>{flight.flight_date}</td>
             {adminView && <td>{pilotNames.get(flight.pilot_id) ?? flight.pilot_id}</td>}
             <td>{flight.aircraft}</td><td>{formatDuration(flight.duration_minutes)}</td><td>{flight.notes || '—'}</td>
             {manageView && <td><button className="remove-flight" disabled={removing} onClick={() => void removeFlight(flight)} aria-label={'Elimina el vol del ' + flight.flight_date + ' amb ' + flight.aircraft}>Elimina</button></td>}
+            {!adminView && !manageView && <td><button disabled={busy} onClick={() => startEditingFlight(flight)} aria-label={'Edita el vol del ' + flight.flight_date + ' amb ' + flight.aircraft}>Edita</button></td>}
           </tr>)}</tbody>
         </table></div>}
       </section>}

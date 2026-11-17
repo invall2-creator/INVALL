@@ -1,5 +1,7 @@
 * { box-sizing: border-box; }
 
+html { background: #0b1220; }
+
 body {
   min-height: 100vh;
   isolation: isolate;
@@ -15,8 +17,14 @@ body {
 
 body::before {
   position: fixed;
-  inset: 0;
-  background: url('/branding/escut-fons.jpg') center 46% / min(86vw, 70vh, 680px) auto no-repeat;
+  top: 50%;
+  left: 50%;
+  width: min(86vw, 70vh, 680px);
+  aspect-ratio: 800 / 866;
+  transform: translate(-50%, -50%);
+  background: url('/branding/escut-fons.jpg') center / contain no-repeat;
+  clip-path: polygon(3% 4%, 96% 4%, 94% 54%, 91% 68%, 85% 80%, 76% 88%, 65% 95%,
+    56% 98%, 49% 99%, 39% 96%, 28% 91%, 18% 84%, 12% 73%, 7% 60%);
   content: '';
   filter: blur(2px);
   mix-blend-mode: screen;
