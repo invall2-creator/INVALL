@@ -16,7 +16,7 @@ import { Fleet } from './views/Fleet';
 const VIEWS = ['tauler', 'registra', 'historial', 'equip', 'flota'] as const;
 type View = typeof VIEWS[number];
 // Enllaços de la versió anterior
-const LEGACY: Record<string, View> = { 'els-meus-vols': 'tauler', 'gestiona-els-vols': 'historial', excel: 'historial', 'comptes-de-pilots': 'equip' };
+const LEGACY: Record<string, View> = { 'els-meus-vols': 'tauler', 'gestiona-els-vols': 'historial', excel: 'historial', 'comptes-de-pilots': 'equip', 'copia-de-seguretat': 'equip' };
 const appUrl = () => window.location.origin + import.meta.env.BASE_URL;
 
 function currentView(): View {

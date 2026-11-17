@@ -184,3 +184,9 @@ dialog::backdrop { background: rgba(3, 8, 16, .7); }
 .profile-photo-controls { position: absolute; right: 0; top: 46px; z-index: 6; width: 260px; display: grid; gap: 8px; padding: 12px; background: #111f36; border: 1px solid var(--line); border-radius: 10px; }
 
 @media (prefers-reduced-motion: no-preference) { .fill, .progress > div { transition: width .3s ease; } }
+
+/* Còpia de seguretat */
+.backup-share { display: grid; gap: 16px; max-width: 520px; }
+.backup-share form { display: grid; gap: 10px; }
+.backup-share .actions { align-items: center; }
+.backup-share a { color: #c0dcff; }

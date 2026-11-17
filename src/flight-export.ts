@@ -4,7 +4,9 @@ import { todayISO } from './format';
 
 const DAY = 24 * 60;
 
-export async function downloadWorkbook(flights: Flight[], data: AppData) {
+export const WORKBOOK_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+export async function createFlightWorkbook(flights: Flight[], data: AppData) {
   const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
   const sorted = [...flights].sort((a, b) => a.flight_date.localeCompare(b.flight_date) || (a.start_time ?? '').localeCompare(b.start_time ?? ''));
@@ -61,8 +63,12 @@ export async function downloadWorkbook(flights: Flight[], data: AppData) {
     sheet.getRow(1).font = { bold: true };
   }
 
-  const buffer = await workbook.xlsx.writeBuffer();
-  const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  return workbook.xlsx.writeBuffer();
+}
+
+export async function downloadWorkbook(flights: Flight[], data: AppData) {
+  const buffer = await createFlightWorkbook(flights, data);
+  const url = URL.createObjectURL(new Blob([buffer], { type: WORKBOOK_TYPE }));
   const link = document.createElement('a');
   link.href = url;
   link.download = `UDRON-llibre-de-vols-${todayISO()}.xlsx`;

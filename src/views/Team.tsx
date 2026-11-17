@@ -4,6 +4,7 @@ import type { Member } from '../flight-data';
 import { daysBetween, fmtDate, fmtHM, lastDate, sumMinutes, todayISO } from '../format';
 import { supabase } from '../lib/supabase';
 import { RecencyChip } from './Dashboard';
+import { FlightBackup } from '../FlightBackup';
 
 export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,5 +80,6 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
       </table></div>
       <p className="hint">Bloquejar treu l'accés però conserva tots els vols. Per bloquejar un administrador, primer treu-li el rol.</p>
     </div>
+    <FlightBackup data={data} />
   </section>;
 }
