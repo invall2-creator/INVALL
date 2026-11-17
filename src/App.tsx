@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
+import { ProfilePhoto } from './ProfilePhoto';
 import {
   formatDuration, loadFlights, loadPilots, loadProfile, summarizeFlights,
   type ApprovalStatus, type Flight, type Pilot, type Profile,
@@ -28,7 +29,7 @@ export function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  if (!ready) return <main><h1>INVALL · Control de vols</h1><p role="status">Carregant…</p></main>;
+  if (!ready) return <main><h1>Udrón · Control de vols</h1><p role="status">Carregant…</p></main>;
   return user ? <FlightAccount key={user.id} user={user} /> : <AccessForm />;
 }
 
@@ -69,7 +70,7 @@ function AccessForm() {
           : 'No s’ha pogut iniciar la sessió. Comprova el correu i la contrasenya.');
       }
     } catch {
-      setMessage('No s’ha pogut connectar amb INVALL. Torna-ho a provar.');
+      setMessage('No s’ha pogut connectar amb Udrón. Torna-ho a provar.');
     } finally {
       setPassword('');
       setBusy(false);
@@ -77,7 +78,7 @@ function AccessForm() {
   }
 
   return <main>
-    <h1>INVALL · Control de vols</h1>
+    <h1>Udrón · Control de vols</h1>
     <section>
       <h2>{registration ? 'Sol·licita un compte de pilot' : 'Accés de pilots'}</h2>
       <form onSubmit={submit}>
@@ -223,7 +224,7 @@ function FlightAccount({ user }: { user: User }) {
       const link = document.createElement('a');
       const url = URL.createObjectURL(new Blob([workbook], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       link.href = url;
-      link.download = 'INVALL-llibre-de-vols.xlsx';
+      link.download = 'Udrón-llibre-de-vols.xlsx';
       document.body.append(link);
       link.click();
       link.remove();
@@ -237,7 +238,11 @@ function FlightAccount({ user }: { user: User }) {
 
   return <main>
     <header>
-      <div><h1>INVALL · Control de vols</h1><p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p></div>
+      <div>
+        <h1>Udrón · Control de vols</h1>
+        <p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p>
+        {approved && <ProfilePhoto userId={user.id} name={userName} />}
+      </div>
       <nav className="actions account-navigation" aria-label="Compte">
         {approved && <>
           <a href={'#' + personalSectionId} aria-current={!adminView && !excelView ? 'page' : undefined}>Els meus vols</a>
