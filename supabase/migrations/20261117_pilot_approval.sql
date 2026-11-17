@@ -37,7 +37,7 @@ as $$
   );
 $$;
 
-revoke all on function public.can_log_flights() from public;
+revoke all on function public.can_log_flights() from public, anon;
 grant execute on function public.can_log_flights() to authenticated;
 
 drop policy if exists flights_select on public.flights;
@@ -82,8 +82,8 @@ begin
 end;
 $$;
 
-revoke all on function public.list_pilots() from public;
-revoke all on function public.set_pilot_approval(uuid, text) from public;
+revoke all on function public.list_pilots() from public, anon;
+revoke all on function public.set_pilot_approval(uuid, text) from public, anon;
 grant execute on function public.list_pilots() to authenticated;
 grant execute on function public.set_pilot_approval(uuid, text) to authenticated;
 
