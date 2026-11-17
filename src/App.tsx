@@ -173,7 +173,7 @@ function Shell({ user }: { user: User }) {
 
   const data: AppData | null = useMemo(() => {
     if (!profile) return null;
-    const names = new Map(team.map(m => [m.id, m.display_name || m.email || 'Pilot']));
+    const names = new Map(team.map(m => [m.id, (m.display_name || m.email || 'Pilot') + (m.approval_status === 'removed' ? ' (eliminat)' : '')]));
     names.set(user.id, profile.display_name || user.email || 'Jo');
     const crafts = new Map(aircraft.map(a => [a.id, a.model]));
     return {

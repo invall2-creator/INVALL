@@ -1,22 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { AppData } from '../context';
 import { CATEGORIES, MISSIONS, type Flight } from '../flight-data';
-import { fmtDate, fmtHM, fmtHours, parseDuration, todayISO } from '../format';
+import { fmtDate, fmtHM, fmtHours, minutesBetween, parseDuration, todayISO } from '../format';
 import { supabase } from '../lib/supabase';
 
 type Fields = {
-  flight_date: string; duration: string; aircraft_id: string;
+  flight_date: string; start_time: string; end_time: string; duration: string; aircraft_id: string;
   place: string; mission: string; category: string; light: 'dia' | 'nit'; crew_role: 'pilot' | 'observador';
   takeoffs: string; incident: boolean; incident_text: string; notes: string;
 };
 const DRAFT_KEY = 'udron-esborrany-vol';
 
 const empty = (): Fields => ({
-  flight_date: todayISO(), duration: '', aircraft_id: '', place: '', mission: '',
+  flight_date: todayISO(), start_time: '', end_time: '', duration: '', aircraft_id: '', place: '', mission: '',
   category: '', light: 'dia', crew_role: 'pilot', takeoffs: '1', incident: false, incident_text: '', notes: '',
 });
 const fromFlight = (f: Flight): Fields => ({
-  flight_date: f.flight_date, duration: fmtHM(f.duration_minutes),
+  flight_date: f.flight_date, start_time: f.start_time ?? '', end_time: f.end_time ?? '', duration: fmtHM(f.duration_minutes),
   aircraft_id: f.aircraft_id ?? '', place: f.place ?? '', mission: f.mission ?? '', category: f.category ?? '',
   light: f.light, crew_role: f.crew_role, takeoffs: String(f.takeoffs || 1), incident: f.incident,
   incident_text: f.incident_text ?? '', notes: f.notes ?? '',
@@ -45,7 +45,14 @@ export function FlightForm({ data, editing, onDone }: { data: AppData; editing: 
   }, [fields, editing]);
 
   function set<K extends keyof Fields>(key: K, value: Fields[K]) {
-    setFields(prev => ({ ...prev, [key]: value }));
+    setFields(prev => {
+      const next = { ...prev, [key]: value };
+      if (key === 'start_time' || key === 'end_time') {
+        const minutes = minutesBetween(next.start_time, next.end_time);
+        if (minutes) next.duration = fmtHM(minutes);
+      }
+      return next;
+    });
   }
 
   function validate(minutes: number | null) {
@@ -69,7 +76,7 @@ export function FlightForm({ data, editing, onDone }: { data: AppData; editing: 
     if (problem || minutes === null) return;
     const craft = data.aircraft.find(a => a.id === fields.aircraft_id);
     const row = {
-      flight_date: fields.flight_date, start_time: editing?.start_time ?? null, end_time: editing?.end_time ?? null,
+      flight_date: fields.flight_date, start_time: fields.start_time || null, end_time: fields.end_time || null,
       duration_minutes: minutes, aircraft_id: fields.aircraft_id || null, aircraft: craft?.model ?? editing?.aircraft ?? '',
       place: fields.place.trim() || null, mission: fields.mission, category: fields.category || null, light: fields.light,
       crew_role: fields.crew_role, takeoffs: Math.min(99, Math.max(1, Math.round(Number(fields.takeoffs) || 1))),
@@ -105,8 +112,11 @@ export function FlightForm({ data, editing, onDone }: { data: AppData; editing: 
         <h2 id="registra-titol">{editing ? `Edita el vol del ${fmtDate(editing.flight_date)}` : 'Registra un vol'}</h2>
         {!editing && <span className="hint">L'esborrany es desa en aquest dispositiu</span>}
       </div>
+      <p className="hint">Només cal el temps total de vol. Si poses l'hora d'inici i la de final, el temps es calcula sol.</p>
       <div className="form">
         <label htmlFor={id('data')}>Data<input id={id('data')} type="date" max={todayISO()} value={fields.flight_date} onChange={e => set('flight_date', e.target.value)} required /></label>
+        <label htmlFor={id('inici')}><span>Hora d'inici <span className="opt">(opcional)</span></span><input id={id('inici')} type="time" value={fields.start_time} onChange={e => set('start_time', e.target.value)} /></label>
+        <label htmlFor={id('fi')}><span>Hora de final <span className="opt">(opcional)</span></span><input id={id('fi')} type="time" value={fields.end_time} onChange={e => set('end_time', e.target.value)} /></label>
         <label htmlFor={id('durada')}>Temps total de vol (h:mm)<input id={id('durada')} inputMode="numeric" placeholder="p. ex. 0:35" value={fields.duration} onChange={e => set('duration', e.target.value)} /></label>
         <label className="span-2" htmlFor={id('aeronau')}>Aeronau
           <select id={id('aeronau')} value={fields.aircraft_id} onChange={e => set('aircraft_id', e.target.value)} required>

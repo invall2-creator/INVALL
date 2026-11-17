@@ -8,7 +8,7 @@ import { Modal } from '../Modal';
 type Filters = { period: string; from: string; to: string; pilot: string; aircraft: string; mission: string; text: string; deleted: boolean };
 
 const FIELD_LABELS: Record<string, string> = {
-  flight_date: 'Data', start_time: 'Enlairament', end_time: 'Aterratge', duration_minutes: 'Durada', aircraft: 'Aeronau',
+  flight_date: 'Data', start_time: 'Hora d\'inici', end_time: 'Hora de final', duration_minutes: 'Temps de vol', aircraft: 'Aeronau',
   place: 'Lloc', mission: 'Servei', category: 'Categoria', light: 'Condicions', crew_role: 'Funció', takeoffs: 'Enlairaments',
   incident: 'Incidència', incident_text: 'Descripció incidència', notes: 'Observacions',
 };
@@ -48,7 +48,7 @@ function FlightDetail({ data, flight, onClose }: { data: AppData; flight: Flight
     <h2 id="detall-titol">Vol del {fmtDate(flight.flight_date)}</h2>
     <dl className="kv">
       <dt>Pilot</dt><dd>{data.nameOf(flight.pilot_id)} · {flight.crew_role === 'observador' ? 'Observador' : 'Pilot al comandament'}</dd>
-      <dt>Temps de vol</dt><dd className="num">{fmtHM(flight.duration_minutes)}</dd>
+      <dt>Temps de vol</dt><dd className="num">{flight.start_time ? `${flight.start_time} – ${flight.end_time ?? '?'}` : '—'} · {fmtHM(flight.duration_minutes)}</dd>
       <dt>Aeronau</dt><dd>{data.craftName(flight)}</dd>
       <dt>Lloc</dt><dd>{flight.place || '—'}</dd>
       <dt>Servei</dt><dd>{flight.mission || '—'}</dd>
@@ -94,7 +94,7 @@ export function History({ data, onEdit, initialPilot }: { data: AppData; onEdit:
       if (!inPeriod(f.flight_date, filters)) return false;
       if (q && ![f.place, f.notes, f.incident_text, data.craftName(f), data.nameOf(f.pilot_id)].join(' ').toLocaleLowerCase('ca').includes(q)) return false;
       return true;
-    }).sort((a, b) => b.flight_date.localeCompare(a.flight_date) || b.created_at.localeCompare(a.created_at));
+    }).sort((a, b) => b.flight_date.localeCompare(a.flight_date) || (b.start_time ?? '').localeCompare(a.start_time ?? '') || b.created_at.localeCompare(a.created_at));
   }, [data, filters]);
   const active = rows.filter(f => !f.deleted_at);
   const pilots = useMemo(() => [...new Set(data.flights.map(f => f.pilot_id))].map(id => [id, data.nameOf(id)] as const).sort((a, b) => a[1].localeCompare(b[1], 'ca')), [data]);
@@ -176,7 +176,7 @@ export function History({ data, onEdit, initialPilot }: { data: AppData; onEdit:
           {rows.slice(0, 400).map(f => {
             const canChange = !f.deleted_at && (data.isAdmin || f.pilot_id === data.user.id);
             return <tr key={f.id} className={f.deleted_at ? 'deleted' : undefined}>
-              <td data-l="Data" className="num">{fmtDate(f.flight_date)}</td>
+              <td data-l="Data" className="num">{fmtDate(f.flight_date)}{f.start_time && <div className="hint">{f.start_time}–{f.end_time ?? ''}</div>}</td>
               {data.isAdmin && <td data-l="Pilot">{data.nameOf(f.pilot_id)}</td>}
               <td data-l="Aeronau">{data.craftName(f)}</td>
               <td data-l="Lloc · servei"><div>{f.place || '—'}</div><div className="hint">{f.mission || 'Sense especificar'}</div>
