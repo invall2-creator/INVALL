@@ -29,7 +29,6 @@
 - Nunca aceptar roles de los metadatos editables del usuario.
 
 ## Estado y límites
-- Scaffold funcional sujeto a configurar Supabase y desplegar el frontend.
-- El prototipo anterior permanece en `index.html`; `app.html` es la entrada React de esta fase.
-- Falta panel de alta de pilotos, edición auditada, informes, pruebas de seguridad y despliegue.
-- No almacenar datos operativos sensibles ni personales reales hasta revisar protección de datos, acceso y alojamiento.
+- v3 (migración `20261122_udron_v3.sql`): flota en tabla `aircraft`, campos completos del vuelo, edición y eliminación auditadas en `flight_changes` mediante funciones `security definer` (`update_flight`, `remove_flight`, `restore_flight`), gestión del equipo (`list_team`, `set_member_role`) y validación en servidor (fecha no futura, incidencia descrita).
+- Despliegue automático con GitHub Actions a la rama `gh-pages`.
+- Pendiente: revisar protección de datos (RGPD) antes de guardar datos personales reales, CSP y modo sin conexión.

@@ -1,83 +1,118 @@
 import { supabase } from './lib/supabase';
 
-export const flightFields = 'id,flight_date,aircraft,duration_minutes,notes,pilot_id';
 export type ApprovalStatus = 'pending' | 'approved' | 'blocked';
+export type Role = 'pilot' | 'admin';
+
 export type Flight = {
   id: string;
-  flight_date: string;
-  aircraft: string;
-  duration_minutes: number;
-  notes: string | null;
   pilot_id: string;
-};
-export type Profile = { id: string; display_name: string; role: 'pilot' | 'admin'; approval_status: ApprovalStatus };
-export type Pilot = {
-  id: string;
-  display_name: string;
-  email: string | null;
-  approval_status: ApprovalStatus;
-  email_confirmed: boolean;
+  flight_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  duration_minutes: number;
+  aircraft: string;
+  aircraft_id: string | null;
+  place: string | null;
+  mission: string | null;
+  category: string | null;
+  light: 'dia' | 'nit';
+  crew_role: 'pilot' | 'observador';
+  takeoffs: number;
+  incident: boolean;
+  incident_text: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  delete_reason: string | null;
 };
 
-async function readAll<T extends { id: string }>(readPage: (cursor: string | null) => PromiseLike<{
-  data: T[] | null;
-  error: unknown;
-}>): Promise<T[]> {
+export type Aircraft = {
+  id: string;
+  model: string;
+  serial: string | null;
+  class: string | null;
+  status: 'operativa' | 'manteniment' | 'baixa';
+  review_interval_hours: number | null;
+  last_review: string | null;
+  sort_order: number;
+};
+
+export type Profile = { id: string; display_name: string; role: Role; approval_status: ApprovalStatus };
+export type Member = Profile & { email: string | null; email_confirmed: boolean };
+export type FlightChange = {
+  id: number;
+  flight_id: string;
+  changed_by: string;
+  changed_at: string;
+  action: 'edit' | 'delete' | 'restore';
+  reason: string | null;
+  changes: { field: string; from: unknown; to: unknown }[];
+};
+
+export const MISSIONS = ['Recerca de persones', 'Seguretat ciutadana', 'Assalts', 'Trànsit', 'Suport a incendis',
+  'Reconeixement / inspecció', 'Esdeveniment', 'Formació', 'Prova tècnica'];
+export const CATEGORIES = ['Oberta A1', 'Oberta A2', 'Oberta A3', 'Específica (STS)', 'Específica (autorització)', "Exempta / d'estat"];
+export const AIRCRAFT_CLASSES = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'Sense classe'];
+
+const flightFields = 'id,pilot_id,flight_date,start_time,end_time,duration_minutes,aircraft,aircraft_id,place,mission,category,light,crew_role,takeoffs,incident,incident_text,notes,created_at,updated_at,deleted_at,deleted_by,delete_reason';
+
+async function readAll<T extends { id: string }>(readPage: (cursor: string | null) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
   const rows: T[] = [];
   let cursor: string | null = null;
   for (;;) {
     const { data, error } = await readPage(cursor);
     if (error || !data) throw error ?? new Error('No hi ha dades.');
-    if (data.length === 0) return rows;
     rows.push(...data);
+    if (data.length < 500) return rows;
     cursor = data[data.length - 1].id;
   }
 }
 
-export async function loadFlights(pilotId?: string) {
-  const flights = await readAll<Flight>(cursor => {
-    const query = supabase.from('flights').select(flightFields).order('id').limit(500);
-    if (pilotId) query.eq('pilot_id', pilotId);
+export async function loadFlights(pilotId?: string): Promise<Flight[]> {
+  const rows = await readAll<Flight>(cursor => {
+    let query = supabase.from('flights').select(flightFields).order('id').limit(500);
+    if (pilotId) query = query.eq('pilot_id', pilotId);
     return cursor ? query.gt('id', cursor) : query;
   });
-  return flights.sort((a, b) => b.flight_date.localeCompare(a.flight_date));
+  return rows.map(row => ({
+    ...row,
+    start_time: row.start_time?.slice(0, 5) ?? null,
+    end_time: row.end_time?.slice(0, 5) ?? null,
+  }));
 }
 
-export async function loadProfile(id: string) {
-  const result = await supabase.from('profiles').select('id,display_name,role,approval_status').eq('id', id).single();
-  if (!result.error) return { profile: result.data as Profile, approvalsReady: true };
-  if (result.error.code !== '42703') throw result.error;
-
-  const legacy = await supabase.from('profiles').select('id,display_name,role').eq('id', id).single();
-  if (legacy.error) throw legacy.error;
-  return { profile: { ...legacy.data, approval_status: 'approved' } as Profile, approvalsReady: false };
+export async function loadAircraft(): Promise<Aircraft[]> {
+  const { data, error } = await supabase.from('aircraft')
+    .select('id,model,serial,class,status,review_interval_hours,last_review,sort_order')
+    .order('sort_order').order('model');
+  if (error) throw error;
+  return data as Aircraft[];
 }
 
-export async function loadPilots(approvalsReady: boolean): Promise<Pilot[]> {
-  if (!approvalsReady) {
-    const profiles = await readAll<Pick<Pilot, 'id' | 'display_name'>>(cursor => {
-      const query = supabase.from('profiles').select('id,display_name').eq('role', 'pilot').order('id').limit(500);
-      return cursor ? query.gt('id', cursor) : query;
-    });
-    return profiles.map(profile => ({ ...profile, email: null, approval_status: 'approved', email_confirmed: false }));
-  }
-  return readAll<Pilot>(cursor => {
-    const query = supabase.rpc('list_pilots').order('id').limit(500);
+export async function loadProfile(id: string): Promise<Profile> {
+  const { data, error } = await supabase.from('profiles').select('id,display_name,role,approval_status').eq('id', id).single();
+  if (error) throw error;
+  return data as Profile;
+}
+
+export async function loadTeam(): Promise<Member[]> {
+  return readAll<Member>(cursor => {
+    const query = supabase.rpc('list_team').order('id').limit(500);
     return cursor ? query.gt('id', cursor) : query;
   });
 }
 
-export function summarizeFlights(flights: Flight[], pilotNames: ReadonlyMap<string, string>) {
-  const totals = new Map([...pilotNames].map(([id, name]) => [id, { id, name, count: 0, minutes: 0 }]));
-  for (const flight of flights) {
-    const row = totals.get(flight.pilot_id) ?? { id: flight.pilot_id, name: flight.pilot_id, count: 0, minutes: 0 };
-    row.count += 1;
-    row.minutes += flight.duration_minutes;
-    totals.set(row.id, row);
-  }
-  return [...totals.values()].sort((a, b) => a.name.localeCompare(b.name, 'ca'));
+export async function loadChanges(flightId: string): Promise<FlightChange[]> {
+  const { data, error } = await supabase.from('flight_changes')
+    .select('id,flight_id,changed_by,changed_at,action,reason,changes').eq('flight_id', flightId).order('changed_at');
+  if (error) throw error;
+  return data as FlightChange[];
 }
 
-export function formatDuration(minutes: number) {
-  return new Intl.NumberFormat('ca').format(Math.floor(minutes / 60)) + ' h ' + String(minutes % 60).padStart(2, '0') + ' min';
+/** Missing-migration errors from PostgREST: unknown table, column or function. */
+export function isMissingMigration(error: unknown) {
+  const code = (error as { code?: string } | null)?.code;
+  return code === '42P01' || code === '42703' || code === 'PGRST202' || code === 'PGRST205' || code === 'PGRST204';
 }

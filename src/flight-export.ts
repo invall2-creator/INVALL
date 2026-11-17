@@ -1,41 +1,73 @@
-import { loadFlights, summarizeFlights } from './flight-data';
+import type { AppData } from './context';
+import type { Flight } from './flight-data';
+import { todayISO } from './format';
 
-export async function createFlightWorkbook(flights: Awaited<ReturnType<typeof loadFlights>>, pilotNames: ReadonlyMap<string, string>) {
+const DAY = 24 * 60;
+
+export async function downloadWorkbook(flights: Flight[], data: AppData) {
   const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
-  const history = workbook.addWorksheet('Llibre de vols');
-  const summary = workbook.addWorksheet('Totals per pilot');
+  const sorted = [...flights].sort((a, b) => a.flight_date.localeCompare(b.flight_date) || (a.start_time ?? '').localeCompare(b.start_time ?? ''));
 
-  history.columns = [
-    { header: 'Data', width: 14, style: { numFmt: 'dd/mm/yyyy' } },
-    { header: 'Pilot', width: 34 },
-    { header: 'Aeronau', width: 28 },
-    { header: 'Durada', width: 15, style: { numFmt: '[h]:mm' } },
-    { header: 'Observacions', width: 52 },
+  const log = workbook.addWorksheet('Llibre de vols');
+  log.columns = [
+    { header: 'Data', width: 12, style: { numFmt: 'dd/mm/yyyy' } },
+    { header: 'Pilot', width: 26 },
+    { header: 'Funció', width: 12 },
+    { header: 'Aeronau', width: 20 },
+    { header: 'Núm. sèrie', width: 20 },
+    { header: 'Enlairament', width: 12 },
+    { header: 'Aterratge', width: 11 },
+    { header: 'Durada', width: 10, style: { numFmt: '[h]:mm' } },
+    { header: 'Enlairaments', width: 13 },
+    { header: 'Lloc', width: 22 },
+    { header: 'Servei', width: 24 },
+    { header: 'Categoria', width: 22 },
+    { header: 'Condicions', width: 11 },
+    { header: 'Incidència', width: 32 },
+    { header: 'Observacions', width: 40 },
   ];
-  const dayMinutes = 24 * 60;
-  for (const flight of flights) {
-    history.addRow([
-      new Date(flight.flight_date + 'T00:00:00Z'),
-      pilotNames.get(flight.pilot_id) ?? flight.pilot_id,
-      flight.aircraft, flight.duration_minutes / dayMinutes, flight.notes ?? '',
+  for (const f of sorted) {
+    const craft = data.aircraft.find(a => a.id === f.aircraft_id);
+    log.addRow([
+      new Date(f.flight_date + 'T00:00:00Z'), data.nameOf(f.pilot_id), f.crew_role === 'observador' ? 'Observador' : 'Pilot',
+      data.craftName(f), craft?.serial ?? '', f.start_time ?? '', f.end_time ?? '', f.duration_minutes / DAY, f.takeoffs || 1,
+      f.place ?? '', f.mission ?? '', f.category ?? '', f.light === 'nit' ? 'Nocturn' : 'Diürn',
+      f.incident ? f.incident_text ?? 'Sí' : '', f.notes ?? '',
     ]);
   }
+  log.autoFilter = { from: 'A1', to: 'O1' };
 
-  summary.columns = [
-    { header: 'Pilot', width: 34 },
-    { header: 'Vols', width: 12 },
-    { header: 'Hores totals', width: 18, style: { numFmt: '[h]:mm' } },
-  ];
-  for (const total of summarizeFlights(flights, pilotNames)) {
-    summary.addRow([total.name, total.count, total.minutes / dayMinutes]);
-  }
-  summary.addRow(['Total', flights.length, flights.reduce((sum, row) => sum + row.duration_minutes, 0) / dayMinutes]).font = { bold: true };
-
-  for (const sheet of [history, summary]) {
+  const totals = (name: string, label: string, key: (f: Flight) => string) => {
+    const sheet = workbook.addWorksheet(name);
+    sheet.columns = [
+      { header: label, width: 28 }, { header: 'Vols', width: 8 },
+      { header: 'Hores', width: 10, style: { numFmt: '[h]:mm' } }, { header: 'Hores nocturnes', width: 16, style: { numFmt: '[h]:mm' } },
+    ];
+    const groups = new Map<string, Flight[]>();
+    for (const f of sorted) groups.set(key(f), [...(groups.get(key(f)) ?? []), f]);
+    const sum = (list: Flight[]) => list.reduce((s, f) => s + f.duration_minutes, 0) / DAY;
+    for (const [k, list] of [...groups].sort((a, b) => sum(b[1]) - sum(a[1]))) {
+      sheet.addRow([k, list.length, sum(list), sum(list.filter(f => f.light === 'nit'))]);
+    }
+    sheet.addRow(['Total', sorted.length, sum(sorted), sum(sorted.filter(f => f.light === 'nit'))]).font = { bold: true };
+    return sheet;
+  };
+  const sheets = [log];
+  if (data.isAdmin) sheets.push(totals('Totals per pilot', 'Pilot', f => data.nameOf(f.pilot_id)));
+  sheets.push(totals('Totals per aeronau', 'Aeronau', data.craftName));
+  for (const sheet of sheets) {
     sheet.views = [{ state: 'frozen', ySplit: 1 }];
     sheet.getRow(1).font = { bold: true };
   }
-  history.autoFilter = { from: 'A1', to: 'E1' };
-  return workbook.xlsx.writeBuffer();
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `UDRON-llibre-de-vols-${todayISO()}.xlsx`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

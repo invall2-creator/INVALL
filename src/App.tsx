@@ -1,42 +1,54 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import { ProfilePhoto } from './ProfilePhoto';
+import type { AppData } from './context';
 import {
-  formatDuration, loadFlights, loadPilots, loadProfile, summarizeFlights,
-  type ApprovalStatus, type Flight, type Pilot, type Profile,
+  isMissingMigration, loadAircraft, loadFlights, loadProfile, loadTeam,
+  type Aircraft, type Flight, type Flight as FlightRow, type Member, type Profile,
 } from './flight-data';
+import { Dashboard } from './views/Dashboard';
+import { FlightForm } from './views/FlightForm';
+import { History } from './views/History';
+import { Team } from './views/Team';
+import { Fleet } from './views/Fleet';
 
-const aircraftOptions = ['DJI 3T', 'DJI 4T', 'DJI 30T', 'DJI 300', 'DJI 400', 'DJI Avata', 'DJI Avata 2', 'Ala fixa Quantum'];
-const accountsSectionId = 'comptes-de-pilots';
-const personalSectionId = 'els-meus-vols';
-const excelSectionId = 'excel';
-const manageSectionId = 'gestiona-els-vols';
+const VIEWS = ['tauler', 'registra', 'historial', 'equip', 'flota'] as const;
+type View = typeof VIEWS[number];
+// Enllaços de la versió anterior
+const LEGACY: Record<string, View> = { 'els-meus-vols': 'tauler', 'gestiona-els-vols': 'historial', excel: 'historial', 'comptes-de-pilots': 'equip' };
+const appUrl = () => window.location.origin + import.meta.env.BASE_URL;
 
-function currentSection() {
-  return window.location.hash.slice(1);
+function currentView(): View {
+  const hash = window.location.hash.slice(1);
+  return (VIEWS as readonly string[]).includes(hash) ? hash as View : LEGACY[hash] ?? 'tauler';
 }
 
-const statusLabels = { approved: 'Aprovat', pending: 'Pendent', blocked: 'Bloquejat' };
+function Brand() {
+  return <div className="brand"><h1><b>UDRON</b> · Control de vols</h1><span>Llibre de vols de pilots RPAS</span></div>;
+}
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
       setUser(session?.user ?? null);
       setReady(true);
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  if (!ready) return <main><h1>UDRON · Control de vols</h1><p role="status">Carregant…</p></main>;
-  return user ? <FlightAccount key={user.id} user={user} /> : <AccessForm />;
+  if (!ready) return <div className="auth"><Brand /><p role="status">Carregant…</p></div>;
+  if (recovering) return <NewPassword onDone={() => setRecovering(false)} />;
+  return user ? <Shell key={user.id} user={user} /> : <AccessForm />;
 }
 
 function AccessForm() {
-  const [registration, setRegistration] = useState(false);
+  const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,28 +60,21 @@ function AccessForm() {
     setBusy(true);
     setMessage('');
     try {
-      if (registration) {
-        if (!name.trim()) {
-          setMessage('Introdueix el teu nom.');
-          return;
-        }
+      if (mode === 'register') {
+        if (!name.trim()) { setMessage('Introdueix el teu nom i cognoms.'); return; }
         const { error } = await supabase.auth.signUp({
           email: email.trim(), password,
-          options: { data: { display_name: name.trim() }, emailRedirectTo: window.location.origin + import.meta.env.BASE_URL },
+          options: { data: { display_name: name.trim() }, emailRedirectTo: appUrl() },
         });
-        if (error) {
-          setMessage(error.code === 'signup_disabled'
-            ? 'El registre encara no està obert.'
-            : 'No s’ha pogut tramitar el registre. Revisa les dades o torna-ho a provar més tard.');
-        } else {
-          setRegistration(false);
-          setMessage('Revisa el correu per confirmar el compte. Després, l’administrador haurà d’aprovar la sol·licitud.');
-        }
+        if (error) setMessage(error.code === 'signup_disabled' ? 'El registre no està obert ara mateix.' : 'No s’ha pogut tramitar el registre. Revisa les dades o torna-ho a provar més tard.');
+        else { setMode('login'); setMessage('Revisa el correu per confirmar el compte. Després, l’administració haurà d’autoritzar-te.'); }
+      } else if (mode === 'reset') {
+        await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: appUrl() });
+        setMode('login');
+        setMessage('Si el correu és d’un compte d’UDRON, rebràs un enllaç per posar una contrasenya nova.');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) setMessage(error.code === 'email_not_confirmed'
-          ? 'Confirma el correu electrònic abans d’iniciar la sessió.'
-          : 'No s’ha pogut iniciar la sessió. Comprova el correu i la contrasenya.');
+        if (error) setMessage(error.code === 'email_not_confirmed' ? 'Confirma el correu electrònic abans d’entrar.' : 'No s’ha pogut entrar. Comprova el correu i la contrasenya.');
       }
     } catch {
       setMessage('No s’ha pogut connectar amb UDRON. Torna-ho a provar.');
@@ -79,311 +84,145 @@ function AccessForm() {
     }
   }
 
-  return <main>
-    <h1>UDRON · Control de vols</h1>
-    <section>
-      <h2>{registration ? 'Sol·licita un compte de pilot' : 'Accés de pilots'}</h2>
-      <form onSubmit={submit}>
-        {registration && <label>Nom i cognoms<input autoComplete="name" value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label>}
-        <label>Correu electrònic<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
-        <label>Contrasenya<input type="password" autoComplete={registration ? 'new-password' : 'current-password'} minLength={registration ? 8 : undefined} value={password} onChange={e => setPassword(e.target.value)} required /></label>
-        <button disabled={busy}>{registration ? 'Envia la sol·licitud' : 'Inicia la sessió'}</button>
-      </form>
-      <p><button type="button" disabled={busy} onClick={() => { setRegistration(!registration); setPassword(''); setMessage(''); }}>
-        {registration ? 'Torna a l’inici de sessió' : 'Crea un compte'}
-      </button></p>
-      {message && <p role="status">{message}</p>}
-    </section>
-  </main>;
+  const title = { login: 'Accés de pilots', register: 'Sol·licita un compte de pilot', reset: 'Recupera la contrasenya' }[mode];
+  return <div className="auth">
+    <Brand />
+    <form className="panel auth-card" onSubmit={submit}>
+      <h2>{title}</h2>
+      {mode === 'register' && <label htmlFor="acc-nom">Nom i cognoms<input id="acc-nom" autoComplete="name" value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label>}
+      <label htmlFor="acc-correu">Correu electrònic<input id="acc-correu" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
+      {mode !== 'reset' && <label htmlFor="acc-contrasenya">Contrasenya<input id="acc-contrasenya" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={mode === 'register' ? 8 : undefined} value={password} onChange={e => setPassword(e.target.value)} required /></label>}
+      <button className="primary" disabled={busy}>{{ login: 'Entra', register: 'Envia la sol·licitud', reset: "Envia'm l'enllaç" }[mode]}</button>
+      {message && <p className="ok" role="status">{message}</p>}
+      <div className="auth-links">
+        {mode !== 'login' && <button type="button" className="link" onClick={() => { setMode('login'); setMessage(''); }}>Torna a l'inici de sessió</button>}
+        {mode === 'login' && <button type="button" className="link" onClick={() => { setMode('reset'); setMessage(''); }}>He oblidat la contrasenya</button>}
+        {mode === 'login' && <button type="button" className="link" onClick={() => { setMode('register'); setMessage(''); }}>Sol·licita un compte</button>}
+      </div>
+    </form>
+  </div>;
 }
 
-function FlightAccount({ user }: { user: User }) {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [approvalsReady, setApprovalsReady] = useState(false);
-  const [flights, setFlights] = useState<Flight[]>([]);
-  const [pilots, setPilots] = useState<Pilot[]>([]);
-  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
-  const [aircraftType, setAircraftType] = useState('');
-  const [aircraftModel, setAircraftModel] = useState('');
-  const [minutes, setMinutes] = useState('');
-  const [notes, setNotes] = useState('');
-  const [editingFlight, setEditingFlight] = useState<string | null>(null);
+function NewPassword({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
-  const [notice, setNotice] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [section, setSection] = useState(currentSection);
-  const adminRequested = section === accountsSectionId;
-  const excelView = section === excelSectionId;
-  const manageView = section === manageSectionId;
-  const [removing, setRemoving] = useState(false);
-  const [loadedAdminRequest, setLoadedAdminRequest] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [pilotBusy, setPilotBusy] = useState<string | null>(null);
-  const [reload, setReload] = useState(0);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (password.length < 8) { setMessage('Ha de tenir almenys 8 caràcters.'); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (error) { setMessage('No s’ha pogut canviar. Demana un enllaç nou i torna-ho a provar.'); return; }
+    window.history.replaceState(null, '', import.meta.env.BASE_URL + '#tauler');
+    onDone();
+  }
+  return <div className="auth"><Brand />
+    <form className="panel auth-card" onSubmit={submit}>
+      <h2>Contrasenya nova</h2>
+      <label htmlFor="nova-contrasenya">Contrasenya nova<input id="nova-contrasenya" type="password" autoComplete="new-password" minLength={8} value={password} onChange={e => setPassword(e.target.value)} required /></label>
+      <button className="primary" disabled={busy}>Desa la contrasenya</button>
+      {message && <p className="err" role="alert">{message}</p>}
+    </form>
+  </div>;
+}
+
+function Shell({ user }: { user: User }) {
+  const [view, setView] = useState<View>(currentView);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [aircraft, setAircraft] = useState<Aircraft[]>([]);
+  const [team, setTeam] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [problem, setProblem] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
+  const [editing, setEditing] = useState<FlightRow | null>(null);
+  const [pilotFilter, setPilotFilter] = useState('');
+  const reload = useCallback(() => setReloadTick(t => t + 1), []);
+
+  useEffect(() => { if (view !== 'historial') setPilotFilter(''); }, [view]);
 
   useEffect(() => {
-    const followHash = () => setSection(currentSection());
-    window.addEventListener('hashchange', followHash);
-    return () => window.removeEventListener('hashchange', followHash);
+    const follow = () => setView(currentView());
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
   }, []);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setNotice('');
-
-    async function load() {
+    (async () => {
       try {
-        const { profile: current, approvalsReady: canReview } = await loadProfile(user.id);
-        const team = adminRequested && current.role === 'admin';
-        const [rows, accounts] = current.approval_status === 'approved'
-          ? await Promise.all([loadFlights(team ? undefined : user.id), team ? loadPilots(canReview) : []])
-          : [[], []];
-        if (active) {
-          setProfile(current);
-          setApprovalsReady(canReview);
-          setFlights(rows);
-          setPilots(accounts);
-        }
-      } catch {
-        if (active) {
-          setProfile(null);
-          setFlights([]);
-          setPilots([]);
-          setNotice('No s’han pogut carregar les dades. Torna-ho a provar.');
-        }
+        const me = await loadProfile(user.id);
+        const admin = me.role === 'admin' && me.approval_status === 'approved';
+        const [rows, fleet, members] = me.approval_status === 'approved'
+          ? await Promise.all([loadFlights(admin ? undefined : user.id), loadAircraft(), admin ? loadTeam() : Promise.resolve([])])
+          : [[], [], []];
+        if (!active) return;
+        setProfile(me); setFlights(rows); setAircraft(fleet); setTeam(members); setProblem('');
+      } catch (error) {
+        if (active) setProblem(isMissingMigration(error)
+          ? 'Falta aplicar la migració 20261122_udron_v3.sql a Supabase. Avisa l’administració.'
+          : 'No s’han pogut carregar les dades. Comprova la connexió i torna-ho a provar.');
       } finally {
-        if (active) {
-          setLoadedAdminRequest(adminRequested);
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
-    }
-    void load();
+    })();
     return () => { active = false; };
-  }, [user.id, reload, adminRequested]);
+  }, [user.id, reloadTick]);
+
+  const data: AppData | null = useMemo(() => {
+    if (!profile) return null;
+    const names = new Map(team.map(m => [m.id, m.display_name || m.email || 'Pilot']));
+    names.set(user.id, profile.display_name || user.email || 'Jo');
+    const crafts = new Map(aircraft.map(a => [a.id, a.model]));
+    return {
+      user, profile, flights, aircraft, team, reload,
+      isAdmin: profile.role === 'admin' && profile.approval_status === 'approved',
+      nameOf: id => names.get(id) ?? 'Pilot',
+      craftName: f => (f.aircraft_id && crafts.get(f.aircraft_id)) || f.aircraft || 'Sense aeronau',
+    };
+  }, [user, profile, flights, aircraft, team, reload]);
 
   const approved = profile?.approval_status === 'approved';
-  const admin = approved && profile.role === 'admin';
-
-  const adminView = admin && adminRequested;
-  const viewLoading = loading || loadedAdminRequest !== adminRequested;
+  const effectiveView: View = view === 'equip' && !data?.isAdmin ? 'tauler' : view;
   const userName = profile?.display_name || user.email || 'Pilot';
-  const pilotNames = new Map(pilots.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
-  pilotNames.set(user.id, userName);
-  const totalMinutes = flights.reduce((sum, row) => sum + row.duration_minutes, 0);
+  const go = (target: View) => { window.location.hash = target; };
 
-  function clearFlightFields() {
-    setEditingFlight(null);
-    setAircraftType('');
-    setAircraftModel('');
-    setMinutes('');
-    setNotes('');
-  }
-
-  function startEditingFlight(flight: Flight) {
-    const listedAircraft = aircraftOptions.includes(flight.aircraft);
-    setEditingFlight(flight.id);
-    setDate(flight.flight_date);
-    setAircraftType(listedAircraft ? flight.aircraft : 'other');
-    setAircraftModel(listedAircraft ? '' : flight.aircraft);
-    setMinutes(String(flight.duration_minutes));
-    setNotes(flight.notes ?? '');
-    setMessage('');
-    document.getElementById('formulari-de-vol')?.scrollIntoView({ block: 'start' });
-    document.getElementById('data-del-vol')?.focus({ preventScroll: true });
-  }
-
-  async function saveFlight(event: FormEvent) {
-    event.preventDefault();
-    const duration = Number(minutes);
-    const aircraft = aircraftType === 'other' ? aircraftModel.trim() : aircraftType;
-    if (!Number.isInteger(duration) || duration < 1 || duration > 1440 || !aircraft || aircraft.length > 100) {
-      setMessage('Revisa l’aeronau i la durada.');
-      return;
-    }
-    setBusy(true);
-    setMessage('');
-    try {
-      const cleanNotes = notes.trim() || null;
-      if (editingFlight) {
-        const { data, error } = await supabase.rpc('edit_own_flight', {
-          target_id: editingFlight,
-          new_date: date,
-          new_aircraft: aircraft,
-          new_duration: duration,
-          new_notes: cleanNotes,
-        });
-        if (error) throw error;
-        if (!data) {
-          setMessage('Aquest vol ja no està disponible per editar-lo.');
-          setReload(value => value + 1);
-          return;
-        }
-      } else {
-        const { error } = await supabase.from('flights')
-          .insert({ pilot_id: user.id, flight_date: date, aircraft, duration_minutes: duration, notes: cleanNotes });
-        if (error) throw error;
-      }
-      setReload(value => value + 1);
-      clearFlightFields();
-      setMessage(editingFlight ? 'Canvis desats.' : 'Vol registrat.');
-    } catch {
-      setMessage('No s’ha pogut desar el vol.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeFlight(flight: Flight) {
-    if (!window.confirm('Vols eliminar el vol del ' + flight.flight_date + ' amb ' + flight.aircraft + '?')) return;
-    setRemoving(true);
-    setNotice('');
-    try {
-      const { data, error } = await supabase.rpc('remove_own_flight', { target_id: flight.id });
-      if (error) throw error;
-      setFlights(previous => previous.filter(item => item.id !== flight.id));
-      setNotice(data ? 'Vol eliminat.' : 'Aquest vol ja no està disponible.');
-    } catch {
-      setNotice('No s’ha pogut eliminar el vol. Torna-ho a provar.');
-    } finally {
-      setRemoving(false);
-    }
-  }
-
-  async function updatePilot(pilot: Pilot, status: ApprovalStatus) {
-    setPilotBusy(pilot.id);
-    setNotice('');
-    try {
-      const { error } = await supabase.rpc('set_pilot_approval', { target_id: pilot.id, new_status: status });
-      if (error) throw error;
-      setPilots(previous => previous.map(item => item.id === pilot.id ? { ...item, approval_status: status } : item));
-      setNotice(status === 'approved' ? 'Compte aprovat.' : 'Compte bloquejat.');
-    } catch {
-      setNotice('No s’ha pogut canviar l’estat del compte.');
-    } finally {
-      setPilotBusy(null);
-    }
-  }
-
-  async function exportExcel(pilotId?: string) {
-    setExporting(true);
-    setNotice('');
-    try {
-      const [{ createFlightWorkbook }, rows, accounts] = await Promise.all([
-        import('./flight-export'), loadFlights(adminView ? pilotId : user.id), adminView ? loadPilots(approvalsReady) : [],
-      ]);
-      const names = new Map(accounts.map(pilot => [pilot.id, pilot.display_name || pilot.email || pilot.id]));
-      names.set(user.id, userName);
-      const workbook = await createFlightWorkbook(rows, pilotId ? new Map([[pilotId, names.get(pilotId) ?? pilotId]]) : names);
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(new Blob([workbook], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      link.href = url;
-      link.download = 'UDRON-llibre-de-vols.xlsx';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      setNotice('No s’ha pogut exportar el llibre de vols.');
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  return <main>
-    <header>
-      <div>
-        <h1>UDRON · Control de vols</h1>
-        <p>{userName}{approved ? (adminView ? ' · Administrador' : ' · Pilot') : ''}</p>
-        {approved && <ProfilePhoto userId={user.id} name={userName} />}
+  return <>
+    <header className="top">
+      <div className="wrap">
+        <div className="topbar">
+          <Brand />
+          <div className="who">
+            {approved && <ProfilePhoto userId={user.id} name={userName} />}
+            <div><div className="name">{userName}</div><div className="role">{data?.isAdmin ? 'Administrador/a' : approved ? 'Pilot' : ''}</div></div>
+            <button type="button" className="small" onClick={() => void supabase.auth.signOut()}>Surt</button>
+          </div>
+        </div>
+        {approved && <nav className="tabs" aria-label="Seccions">
+          {VIEWS.filter(v => v !== 'equip' || data?.isAdmin).map(v => <a key={v} href={'#' + v} aria-current={effectiveView === v ? 'page' : undefined}>
+            {{ tauler: 'Tauler', registra: editing ? 'Edita el vol' : 'Registra un vol', historial: 'Historial', equip: 'Equip', flota: 'Flota' }[v]}
+            {v === 'equip' && team.some(m => m.approval_status === 'pending') && <span className="dot" aria-label="Hi ha sol·licituds pendents" />}
+          </a>)}
+        </nav>}
       </div>
-      <nav className="actions account-navigation" aria-label="Compte">
-        {approved && <>
-          <a href={'#' + personalSectionId} aria-current={!adminView && !excelView && !manageView ? 'page' : undefined}>Els meus vols</a>
-          <a href={'#' + manageSectionId} aria-current={manageView ? 'page' : undefined}>Gestiona els vols</a>
-          <a href={'#' + excelSectionId} aria-current={excelView ? 'page' : undefined}>Excel</a>
-          {admin && <a href={'#' + accountsSectionId} aria-current={adminView ? 'page' : undefined}>Administració</a>}
-        </>}
-        <button onClick={() => void supabase.auth.signOut()}>Tanca la sessió</button>
-      </nav>
     </header>
-    {viewLoading ? <p role="status">Carregant…</p> : !approved ? <section>
-      <h2>{profile ? 'Estat del compte' : 'Accés al llibre de vols'}</h2>
-      {profile && <p>{profile.approval_status === 'pending'
-        ? 'La teva sol·licitud està pendent d’aprovació.'
-        : 'El teu compte està bloquejat. Contacta amb l’administrador.'}</p>}
-      <button onClick={() => setReload(value => value + 1)}>Torna a comprovar</button>
-    </section> : <>
-      {adminView && <section id={accountsSectionId} aria-labelledby="comptes-de-pilots-titol">
-        <h2 id="comptes-de-pilots-titol">Comptes de pilots</h2>
-        {!approvalsReady ? <p>Falta aplicar la migració d’aprovació a Supabase.</p> : pilots.length === 0 ? <p>Encara no hi ha cap sol·licitud de pilot.</p> : <div className="tablewrap"><table>
-          <thead><tr><th>Pilot</th><th>Correu electrònic</th><th>Estat</th><th>Accés</th></tr></thead>
-          <tbody>{pilots.map(pilot => <tr key={pilot.id}>
-            <td>{pilot.display_name || '—'}</td><td>{pilot.email || '—'}</td>
-            <td>{statusLabels[pilot.approval_status]}{!pilot.email_confirmed && ' · Correu sense confirmar'}</td>
-            <td><div className="actions">{pilot.approval_status === 'approved'
-              ? <button disabled={pilotBusy !== null} onClick={() => void updatePilot(pilot, 'blocked')}>Bloqueja</button>
-              : <button disabled={pilotBusy !== null || !pilot.email_confirmed} onClick={() => void updatePilot(pilot, 'approved')}>{pilot.approval_status === 'blocked' ? 'Reactiva' : 'Aprova'}</button>}{pilot.approval_status === 'pending' && <button disabled={pilotBusy !== null} onClick={() => void updatePilot(pilot, 'blocked')}>Bloqueja</button>}</div></td>
-          </tr>)}</tbody>
-        </table></div>}
-      </section>}
-      {!manageView && <section id={adminView ? undefined : excelView ? excelSectionId : personalSectionId}>
-        <h2>{adminView ? 'Tots els vols' : excelView ? 'Exporta el llibre de vols a Excel' : 'Els meus vols'}</h2>
-        {excelView && <p>Descarrega els teus vols i el total d’hores en un fitxer .xlsx.</p>}
-        <div className="stats">
-          <div><strong>{flights.length}</strong><span>Vols</span></div>
-          <div><strong>{formatDuration(totalMinutes)}</strong><span>Hores acumulades</span></div>
+    <main className="wrap">
+      {loading ? <p role="status">Carregant…</p>
+        : problem ? <div className="panel"><p className="err">{problem}</p><div><button onClick={reload}>Torna-ho a provar</button></div></div>
+        : !profile || !data ? null
+        : !approved ? <div className="panel">
+          <h2>Estat del compte</h2>
+          <p>{profile.approval_status === 'pending' ? 'La teva sol·licitud està pendent. Quan l’administració l’autoritzi, podràs registrar vols.' : 'El teu compte està bloquejat. Contacta amb l’administració.'}</p>
+          <div><button onClick={reload}>Torna a comprovar</button></div>
         </div>
-        <div className="actions">
-          {(adminView || excelView) && <button onClick={() => void exportExcel()} disabled={exporting}>{exporting ? 'Preparant Excel…' : 'Descarrega Excel'}</button>}
-          <button onClick={() => setReload(value => value + 1)}>Actualitza</button>
-        </div>
-      </section>}
-      {adminView && <section>
-        <h2>Hores per pilot</h2>
-        <div className="tablewrap"><table>
-          <thead><tr><th>Pilot</th><th>Vols</th><th>Hores totals</th><th>Excel</th></tr></thead>
-          <tbody>{summarizeFlights(flights, pilotNames).map(total => <tr key={total.id}>
-            <td>{total.name}</td><td>{total.count}</td><td>{formatDuration(total.minutes)}</td>
-            <td><button disabled={exporting} onClick={() => void exportExcel(total.id)} aria-label={'Descarrega Excel de ' + total.name}>Descarrega</button></td>
-          </tr>)}</tbody>
-        </table></div>
-      </section>}
-      {!adminView && !excelView && !manageView && <section id="formulari-de-vol">
-        <h2>{editingFlight ? 'Edita el vol' : 'Registra un vol'}</h2>
-        <form onSubmit={saveFlight}>
-          <label>Data<input id="data-del-vol" type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
-          <label>Tipus d’aeronau<select value={aircraftType} onChange={e => setAircraftType(e.target.value)} required>
-            <option value="">Selecciona un tipus</option>
-            {aircraftOptions.map(option => <option key={option}>{option}</option>)}
-            <option value="other">Una altra aeronau</option>
-          </select></label>
-          {aircraftType === 'other' && <label>Marca i model<input value={aircraftModel} onChange={e => setAircraftModel(e.target.value)} maxLength={100} required /></label>}
-          <label>Durada (minuts)<input type="number" min="1" max="1440" step="1" value={minutes} onChange={e => setMinutes(e.target.value)} required /></label>
-          <label>Observacions<textarea value={notes} onChange={e => setNotes(e.target.value)} maxLength={500} /></label>
-          {editingFlight ? <div className="actions">
-            <button disabled={busy}>Desa els canvis</button>
-            <button type="button" disabled={busy} onClick={() => { clearFlightFields(); setDate(new Date().toLocaleDateString('en-CA')); setMessage(''); }}>Cancel·la</button>
-          </div> : <button disabled={busy}>Desa el vol</button>}
-        </form>
-        {message && <p role="status">{message}</p>}
-      </section>}
-      {!excelView && <section id={manageView ? manageSectionId : undefined}>
-        <h2>{manageView ? 'Gestiona els vols' : 'Historial'}</h2>
-        {flights.length === 0 ? <p>Encara no hi ha cap vol.</p> : <div className="tablewrap"><table>
-          <thead><tr><th>Data</th>{adminView && <th>Pilot</th>}<th>Aeronau</th><th>Durada</th><th>Notes</th>{!adminView && <th>Accions</th>}</tr></thead>
-          <tbody>{flights.map(flight => <tr key={flight.id}>
-            <td>{flight.flight_date}</td>
-            {adminView && <td>{pilotNames.get(flight.pilot_id) ?? flight.pilot_id}</td>}
-            <td>{flight.aircraft}</td><td>{formatDuration(flight.duration_minutes)}</td><td>{flight.notes || '—'}</td>
-            {manageView && <td><button className="remove-flight" disabled={removing} onClick={() => void removeFlight(flight)} aria-label={'Elimina el vol del ' + flight.flight_date + ' amb ' + flight.aircraft}>Elimina</button></td>}
-            {!adminView && !manageView && <td><button disabled={busy} onClick={() => startEditingFlight(flight)} aria-label={'Edita el vol del ' + flight.flight_date + ' amb ' + flight.aircraft}>Edita</button></td>}
-          </tr>)}</tbody>
-        </table></div>}
-      </section>}
-    </>}
-    {notice && <p role="status">{notice}</p>}
-  </main>;
+        : <>
+          {effectiveView === 'tauler' && <Dashboard data={data} />}
+          {effectiveView === 'registra' && <FlightForm data={data} editing={editing} onDone={() => { setEditing(null); go('historial'); }} />}
+          {effectiveView === 'historial' && <History data={data} initialPilot={pilotFilter} onEdit={flight => { setEditing(flight); go('registra'); }} />}
+          {effectiveView === 'equip' && <Team data={data} onOpenPilot={id => { setPilotFilter(id); go('historial'); }} />}
+          {effectiveView === 'flota' && <Fleet data={data} />}
+        </>}
+    </main>
+  </>;
 }
