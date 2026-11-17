@@ -9,7 +9,7 @@ export const WORKBOOK_TYPE = 'application/vnd.openxmlformats-officedocument.spre
 export async function createFlightWorkbook(flights: Flight[], data: AppData) {
   const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
-  const sorted = [...flights].sort((a, b) => a.flight_date.localeCompare(b.flight_date) || (a.start_time ?? '').localeCompare(b.start_time ?? ''));
+  const sorted = [...flights].sort((a, b) => a.flight_date.localeCompare(b.flight_date) || a.created_at.localeCompare(b.created_at));
 
   const log = workbook.addWorksheet('Llibre de vols');
   log.columns = [
@@ -18,9 +18,7 @@ export async function createFlightWorkbook(flights: Flight[], data: AppData) {
     { header: 'Funció', width: 12 },
     { header: 'Aeronau', width: 20 },
     { header: 'Núm. sèrie', width: 20 },
-    { header: 'Enlairament', width: 12 },
-    { header: 'Aterratge', width: 11 },
-    { header: 'Durada', width: 10, style: { numFmt: '[h]:mm' } },
+    { header: 'Temps de vol', width: 13, style: { numFmt: '[h]:mm' } },
     { header: 'Enlairaments', width: 13 },
     { header: 'Lloc', width: 22 },
     { header: 'Servei', width: 24 },
@@ -33,12 +31,12 @@ export async function createFlightWorkbook(flights: Flight[], data: AppData) {
     const craft = data.aircraft.find(a => a.id === f.aircraft_id);
     log.addRow([
       new Date(f.flight_date + 'T00:00:00Z'), data.nameOf(f.pilot_id), f.crew_role === 'observador' ? 'Observador' : 'Pilot',
-      data.craftName(f), craft?.serial ?? '', f.start_time ?? '', f.end_time ?? '', f.duration_minutes / DAY, f.takeoffs || 1,
+      data.craftName(f), craft?.serial ?? '', f.duration_minutes / DAY, f.takeoffs || 1,
       f.place ?? '', f.mission ?? '', f.category ?? '', f.light === 'nit' ? 'Nocturn' : 'Diürn',
       f.incident ? f.incident_text ?? 'Sí' : '', f.notes ?? '',
     ]);
   }
-  log.autoFilter = { from: 'A1', to: 'O1' };
+  log.autoFilter = { from: 'A1', to: 'M1' };
 
   const totals = (name: string, label: string, key: (f: Flight) => string) => {
     const sheet = workbook.addWorksheet(name);
