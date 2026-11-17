@@ -14,6 +14,7 @@ import { History } from './views/History';
 import { Team } from './views/Team';
 import { Fleet } from './views/Fleet';
 import { Rooftops } from './views/Rooftops';
+import { usePresence } from './presence';
 
 const VIEWS = ['tauler', 'registra', 'historial', 'terrats', 'copia-de-seguretat', 'equip', 'flota'] as const;
 type View = typeof VIEWS[number];
@@ -186,6 +187,7 @@ function Shell({ user }: { user: User }) {
   }, [user, profile, flights, aircraft, team, reload]);
 
   const approved = profile?.approval_status === 'approved';
+  usePresence(approved);
   const effectiveView: View = view === 'equip' && !data?.isAdmin ? 'tauler' : view;
   const userName = profile?.display_name || user.email || 'Pilot';
   const go = (target: View) => { window.location.hash = target; };

@@ -1,13 +1,50 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppData } from '../context';
-import type { Member } from '../flight-data';
+import { loadSessions, type AppSession, type Member } from '../flight-data';
 import { daysBetween, fmtDate, fmtHM, lastDate, sumMinutes, todayISO } from '../format';
 import { supabase } from '../lib/supabase';
 import { RecencyChip } from './Dashboard';
 import { FlightBackup } from '../FlightBackup';
 import { Modal } from '../Modal';
 
+const ONLINE_MS = 3 * 60_000;
+const BEAT_MS = 60_000;
+const sessionMs = (s: AppSession, now: number) =>
+  (now - Date.parse(s.last_seen_at) < ONLINE_MS ? now : Date.parse(s.last_seen_at) + BEAT_MS) - Date.parse(s.started_at);
+function fmtSpan(ms: number) {
+  const min = Math.max(1, Math.round(ms / 60_000));
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+}
+function fmtLastSeen(iso: string | undefined, now: number) {
+  if (!iso) return 'Fa més de 7 dies';
+  const t = Date.parse(iso), diff = now - t;
+  if (diff < ONLINE_MS) return 'Ara';
+  if (diff < 3_600_000) return `Fa ${Math.round(diff / 60_000)} min`;
+  const d = new Date(t), today = new Date(now);
+  const hm = d.toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === today.toDateString() ? `Avui ${hm}` : `${d.toLocaleDateString('ca', { day: '2-digit', month: '2-digit' })} ${hm}`;
+}
+
+function useSessions() {
+  const [sessions, setSessions] = useState<AppSession[] | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    let active = true;
+    const load = () => loadSessions(7).then(rows => { if (active) { setSessions(rows); setNow(Date.now()); } }).catch(() => active && setSessions([]));
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  return { sessions, now };
+}
+
 export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: string) => void }) {
+  const { sessions, now } = useSessions();
+  const byUser = new Map<string, AppSession[]>();
+  for (const s of sessions ?? []) byUser.set(s.user_id, [...(byUser.get(s.user_id) ?? []), s]);
+  const online = (sessions ?? []).filter(s => now - Date.parse(s.last_seen_at) < ONLINE_MS)
+    .sort((a, b) => a.started_at.localeCompare(b.started_at))
+    .filter((s, i, list) => list.findIndex(x => x.user_id === s.user_id) === i);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [removing, setRemoving] = useState<Member | null>(null);
@@ -42,6 +79,19 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
 
   return <section className="view" aria-labelledby="equip-titol">
     <div className="panel">
+      <div className="view-head"><h2>Connectats ara {sessions && <span className="hint">· {online.length}</span>}</h2><span className="hint">S'actualitza cada minut</span></div>
+      {!sessions ? <p className="hint">Carregant…</p> : !online.length ? <p className="hint">Ara mateix no hi ha ningú connectat.</p> :
+        <div className="tablewrap"><table className="cards">
+          <thead><tr><th>Nom</th><th>Connectat des de</th><th>Temps connectat</th></tr></thead>
+          <tbody>{online.map(s => <tr key={s.id}>
+            <td data-l="Nom"><span className="chip ok">{data.nameOf(s.user_id)}</span></td>
+            <td data-l="Connectat des de" className="num">{new Date(s.started_at).toLocaleTimeString('ca', { hour: '2-digit', minute: '2-digit' })}</td>
+            <td data-l="Temps connectat" className="num">{fmtSpan(sessionMs(s, now))}</td>
+          </tr>)}</tbody>
+        </table></div>}
+      <p className="hint">Compta mentre l'app està oberta i a la vista. Si algú la deixa en segon pla més de 5 minuts, es comença una connexió nova.</p>
+    </div>
+    <div className="panel">
       <div className="view-head"><h2 id="equip-titol">Sol·licituds d'accés</h2><span className="hint">Els pilots es registren a la pantalla d'inici i tu els autoritzes aquí</span></div>
       {!pending.length ? <p className="hint">No hi ha cap sol·licitud pendent.</p> : <div className="tablewrap"><table className="cards">
         <thead><tr><th>Nom</th><th>Correu</th><th>Estat del correu</th><th><span className="sr-only">Accions</span></th></tr></thead>
@@ -62,7 +112,7 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
       <div className="view-head"><h2>Equip</h2><span className="hint">Clica un nom per veure'n els vols</span></div>
       {notice && <p className="ok" role="status">{notice}</p>}
       <div className="tablewrap"><table className="cards">
-        <thead><tr><th>Nom</th><th>Rol</th><th>Vols</th><th>Hores</th><th>90 dies</th><th>Nocturnes</th><th>Últim vol</th><th>Estat</th><th><span className="sr-only">Accions</span></th></tr></thead>
+        <thead><tr><th>Nom</th><th>Rol</th><th>Vols</th><th>Hores</th><th>90 dies</th><th>Nocturnes</th><th>Últim vol</th><th>Última connexió</th><th>Connexió 7 dies</th><th>Estat</th><th><span className="sr-only">Accions</span></th></tr></thead>
         <tbody>{members.map(m => {
           const flights = data.flights.filter(f => f.pilot_id === m.id && !f.deleted_at);
           const last = lastDate(flights);
@@ -75,6 +125,8 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
             <td data-l="90 dies" className="num">{fmtHM(sumMinutes(flights.filter(f => daysBetween(f.flight_date, today) <= 90)))}</td>
             <td data-l="Nocturnes" className="num">{fmtHM(sumMinutes(flights.filter(f => f.light === 'nit')))}</td>
             <td data-l="Últim vol" className="num">{fmtDate(last)}</td>
+            <td data-l="Última connexió" className="num">{sessions ? fmtLastSeen(byUser.get(m.id)?.[0]?.last_seen_at, now) : '…'}</td>
+            <td data-l="Connexió 7 dies" className="num">{sessions ? (byUser.get(m.id)?.length ? fmtSpan((byUser.get(m.id) ?? []).reduce((t, x) => t + sessionMs(x, now), 0)) : '—') : '…'}</td>
             <td data-l="Estat">{m.approval_status === 'blocked' ? <span className="chip bad">Bloquejat</span> : <RecencyChip last={last} />}</td>
             <td className="actions">{!self && <>
               {m.approval_status === 'blocked'
