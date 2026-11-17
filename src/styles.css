@@ -224,3 +224,12 @@ a.btn { display: inline-flex; align-items: center; font: 500 13px system-ui, -ap
 .place-search input { flex: 1 1 320px; }
 .place-results ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
 .roof-pin.place span { background: #e9b13c; }
+
+/* Navegació */
+a.btn.nav-google { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+a.btn.nav-waze { background: #33ccff; border-color: #33ccff; color: #05202b; }
+.roof-list li { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: stretch; }
+.roof-go { display: grid; gap: 4px; }
+.roof-go a { display: grid; place-items: center; min-width: 56px; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; }
+.roof-go a.nav-google { background: #1a73e8; color: #fff; }
+.roof-go a.nav-waze { background: #33ccff; color: #05202b; }

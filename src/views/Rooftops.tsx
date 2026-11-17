@@ -350,7 +350,8 @@ export function Rooftops({ data }: { data: AppData }) {
               {selected.notes && <><dt>Comentaris</dt><dd>{selected.notes}</dd></>}
             </dl>
             <div className="actions">
-              <a className="btn" href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer">Com arribar</a>
+              <a className="btn nav-google" href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}&travelmode=driving`} target="_blank" rel="noreferrer">Google Maps</a>
+              <a className="btn nav-waze" href={`https://waze.com/ul?ll=${selected.lat},${selected.lng}&navigate=yes`} target="_blank" rel="noreferrer">Waze</a>
               {data.isAdmin && <button type="button" className="small" onClick={() => startEdit(selected)}>Edita</button>}
               {data.isAdmin && <button type="button" className="small danger" onClick={() => setDeleting(selected)}>Esborra</button>}
             </div>
@@ -364,6 +365,10 @@ export function Rooftops({ data }: { data: AppData }) {
                 <b>{r.name}</b>
                 <span>{origin && <strong className="roof-dist">{fmtKm(distanceKm(origin, r))}</strong>}{address(r) || 'Sense adreça'}</span>
               </button>
+              <div className="roof-go" aria-label={`Navega a ${r.name}`}>
+                <a className="nav-google" href={`https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}&travelmode=driving`} target="_blank" rel="noreferrer" title="Navega amb Google Maps">Maps</a>
+                <a className="nav-waze" href={`https://waze.com/ul?ll=${r.lat},${r.lng}&navigate=yes`} target="_blank" rel="noreferrer" title="Navega amb Waze">Waze</a>
+              </div>
             </li>)}
           </ul>
         </>}
