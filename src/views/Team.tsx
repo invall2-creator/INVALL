@@ -48,10 +48,12 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [removing, setRemoving] = useState<Member | null>(null);
+  const [purging, setPurging] = useState<Member | null>(null);
   const today = todayISO();
   const pending = data.team.filter(m => m.approval_status === 'pending');
   const removed = data.team.filter(m => m.approval_status === 'removed');
-  const members = data.team.filter(m => m.approval_status !== 'pending' && m.approval_status !== 'removed').sort((a, b) => data.nameOf(a.id).localeCompare(data.nameOf(b.id), 'ca'));
+  const purged = data.team.filter(m => m.approval_status === 'purged');
+  const members = data.team.filter(m => m.approval_status !== 'pending' && m.approval_status !== 'removed' && m.approval_status !== 'purged').sort((a, b) => data.nameOf(a.id).localeCompare(data.nameOf(b.id), 'ca'));
 
   async function run(member: Member, action: () => PromiseLike<{ error: unknown }>, done: string) {
     setBusy(member.id);
@@ -74,6 +76,12 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
     const m = removing;
     setRemoving(null);
     await run(m, () => supabase.rpc('remove_member', { target_id: m.id }), `${m.display_name || m.email} s'ha eliminat. Els seus vols es conserven.`);
+  }
+  async function confirmPurge() {
+    if (!purging) return;
+    const m = purging;
+    setPurging(null);
+    await run(m, () => supabase.rpc('purge_member', { target_id: m.id }), `${m.display_name || m.email} s'ha esborrat definitivament. Els seus vols es conserven.`);
   }
   const restore = (m: Member) => run(m, () => supabase.rpc('restore_member', { target_id: m.id }), `${m.display_name || m.email} torna a tenir accés.`);
 
@@ -133,6 +141,7 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
                 ? <>
                   <button className="small" disabled={busy !== null} onClick={() => void approval(m, 'approved')}>Reactiva</button>
                   <button className="small danger" disabled={busy !== null} onClick={() => setRemoving(m)}>Elimina</button>
+                  <button className="small danger" disabled={busy !== null} onClick={() => setPurging(m)}>Esborra definitivament</button>
                 </>
                 : <>
                   {m.role === 'pilot'
@@ -145,7 +154,7 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
           </tr>;
         })}</tbody>
       </table></div>
-      <p className="hint">Bloquejar treu l'accés temporalment. Eliminar treu la persona de l'equip i li tanca l'accés per sempre, però els seus vols es conserven. Per bloquejar o eliminar un administrador, primer treu-li el rol.</p>
+      <p className="hint">Bloquejar treu l'accés temporalment. Eliminar treu la persona de l'equip i li tanca l'accés, però es pot restaurar. «Esborra definitivament» (per a bloquejats o eliminats) esborra el compte per sempre. En tots els casos, els vols es conserven. Per bloquejar o eliminar un administrador, primer treu-li el rol.</p>
     </div>
     {removed.length > 0 && <details className="panel">
       <summary><h3 style={{ display: 'inline' }}>Usuaris eliminats ({removed.length})</h3></summary>
@@ -157,7 +166,10 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
             <td data-l="Nom"><button className="link" onClick={() => onOpenPilot(m.id)}>{m.display_name || '—'}</button></td>
             <td data-l="Correu">{m.email}</td>
             <td data-l="Vols conservats" className="num">{flights.length} · {fmtHM(sumMinutes(flights))}</td>
-            <td className="actions"><button className="small" disabled={busy !== null} onClick={() => void restore(m)}>Restaura</button></td>
+            <td className="actions">
+              <button className="small" disabled={busy !== null} onClick={() => void restore(m)}>Restaura</button>
+              <button className="small danger" disabled={busy !== null} onClick={() => setPurging(m)}>Esborra definitivament</button>
+            </td>
           </tr>;
         })}</tbody>
       </table></div>
@@ -169,6 +181,31 @@ export function Team({ data, onOpenPilot }: { data: AppData; onOpenPilot: (id: s
         <div className="foot">
           <button type="button" onClick={() => setRemoving(null)}>Cancel·la</button>
           <button type="button" className="primary danger-fill" onClick={() => void confirmRemove()}>Elimina</button>
+        </div>
+      </div>}
+    </Modal>
+    {purged.length > 0 && <details className="panel">
+      <summary><h3 style={{ display: 'inline' }}>Usuaris esborrats definitivament ({purged.length})</h3></summary>
+      <div className="tablewrap"><table className="cards">
+        <thead><tr><th>Nom</th><th>Vols conservats</th></tr></thead>
+        <tbody>{purged.map(m => {
+          const flights = data.flights.filter(f => f.pilot_id === m.id && !f.deleted_at);
+          return <tr key={m.id}>
+            <td data-l="Nom"><button className="link" onClick={() => onOpenPilot(m.id)}>{m.display_name || '—'}</button></td>
+            <td data-l="Vols conservats" className="num">{flights.length} · {fmtHM(sumMinutes(flights))}</td>
+          </tr>;
+        })}</tbody>
+      </table></div>
+      <p className="hint">El seu compte ja no existeix: no hi ha correu ni contrasenya i no es pot restaurar. Només es guarda el nom perquè els vols continuïn al llibre.</p>
+    </details>}
+    <Modal open={!!purging} onClose={() => setPurging(null)} labelledBy="esborrar-usuari-titol">
+      {purging && <div className="dlg-form">
+        <h2 id="esborrar-usuari-titol">Esborrar definitivament {purging.display_name || purging.email}?</h2>
+        <p>S'esborrarà el seu compte: correu, contrasenya i accés. <strong>No es podrà desfer ni restaurar.</strong> Els seus vols es conserven al llibre i a l'Excel amb el seu nom, marcats com a «esborrat».</p>
+        <p>Si algun dia ha de tornar, s'haurà de donar d'alta de nou.</p>
+        <div className="foot">
+          <button type="button" onClick={() => setPurging(null)}>Cancel·la</button>
+          <button type="button" className="primary danger-fill" onClick={() => void confirmPurge()}>Esborra definitivament</button>
         </div>
       </div>}
     </Modal>
