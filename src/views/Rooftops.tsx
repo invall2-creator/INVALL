@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createRoofMap, type RoofMap } from '../map/roofMap';
+import { FlightWeather } from './FlightWeather';
 import type { AppData } from '../context';
 import { supabase } from '../lib/supabase';
 import { Modal } from '../Modal';
@@ -327,6 +328,13 @@ export function Rooftops({ data }: { data: AppData }) {
               {data.isAdmin && <button type="button" className="small danger" onClick={() => setDeleting(selected)}>Esborra</button>}
             </div>
           </div>}
+          {(() => {
+            const at = selected ? { lat: selected.lat, lng: selected.lng, label: selected.name }
+              : place ? { lat: place.lat, lng: place.lng, label: place.label.split(', ').slice(0, 2).join(', ') }
+              : myPos ? { lat: myPos.lat, lng: myPos.lng, label: 'On ets ara' } : null;
+            return at ? <FlightWeather lat={at.lat} lng={at.lng} label={at.label} />
+              : <p className="hint">Tria un terrat, cerca una adreça o prem «On soc» per veure el vent i el temps per volar.</p>;
+          })()}
           <label htmlFor="t-cerca" className="sr-only">Cerca terrats</label>
           <input id="t-cerca" type="search" placeholder="Cerca per nom, carrer, població o contacte…" value={query} onChange={e => setQuery(e.target.value)} />
           <p className="hint">{rows ? `${visible.length} de ${rows.length} terrats${place ? ` · ordenats per distància a ${place.label.split(', ').slice(0, 2).join(', ')}` : myPos ? ' · ordenats per distància a tu' : ''}` : 'Carregant…'}</p>
