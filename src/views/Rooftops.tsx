@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { createRoofMap, type RoofMap } from '../map/roofMap';
 import type { AppData } from '../context';
 import { supabase } from '../lib/supabase';
 import { Modal } from '../Modal';
@@ -13,7 +12,7 @@ export type Rooftop = {
 type Draft = Omit<Rooftop, 'id' | 'lat' | 'lng'> & { lat: string; lng: string };
 
 const FIELDS = 'id,name,street,town,province,contact,phones,email,hours,notes,lat,lng';
-const CENTER: L.LatLngTuple = [41.3874, 2.1686];
+const CENTER = { lat: 41.3874, lng: 2.1686 };
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase('ca');
 
 /** Splits "678466346 - GUÀRDIA 669466787" into callable numbers, keeping the text around them. */
@@ -69,17 +68,15 @@ export function Rooftops({ data }: { data: AppData }) {
   const [placeResults, setPlaceResults] = useState<Place[] | null>(null);
   const [searchingPlace, setSearchingPlace] = useState(false);
   const [placeError, setPlaceError] = useState('');
-  const placeLayer = useRef<L.LayerGroup | null>(null);
   const [locating, setLocating] = useState(false);
   const [geoError, setGeoError] = useState('');
   const watchId = useRef<number | null>(null);
-  const meLayer = useRef<L.LayerGroup | null>(null);
   const centeredOnMe = useRef(false);
 
   const mapBox = useRef<HTMLDivElement>(null);
-  const map = useRef<L.Map | null>(null);
-  const layer = useRef<L.LayerGroup | null>(null);
-  const pin = useRef<L.Marker | null>(null);
+  const map = useRef<RoofMap | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapWarn, setMapWarn] = useState('');
   const fitted = useRef(false);
   const editingRef = useRef(false);
   editingRef.current = editingId !== null;
@@ -103,89 +100,62 @@ export function Rooftops({ data }: { data: AppData }) {
   }, [rows, query, origin]);
   const selected = rows?.find(r => r.id === selectedId) ?? null;
 
-  // Map setup (once)
+  // Map setup (once): Google Maps if there is a key, OpenStreetMap otherwise
   useEffect(() => {
-    if (!mapBox.current || map.current) return;
-    const m = L.map(mapBox.current, { center: CENTER, zoom: 12, zoomControl: true });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(m);
-    layer.current = L.layerGroup().addTo(m);
-    meLayer.current = L.layerGroup().addTo(m);
-    placeLayer.current = L.layerGroup().addTo(m);
-    m.on('click', e => {
-      if (!editingRef.current) return;
-      setDraft(prev => prev && { ...prev, lat: e.latlng.lat.toFixed(6), lng: e.latlng.lng.toFixed(6) });
+    if (!mapBox.current) return;
+    let cancelled = false;
+    void createRoofMap(mapBox.current, CENTER, setMapWarn).then(m => {
+      if (cancelled) { m.destroy(); return; }
+      m.onClick(p => {
+        if (!editingRef.current) return;
+        setDraft(prev => prev && { ...prev, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) });
+      });
+      map.current = m;
+      setMapReady(true);
     });
-    map.current = m;
-    setTimeout(() => m.invalidateSize(), 0);
-    return () => { m.remove(); map.current = null; };
+    return () => { cancelled = true; map.current?.destroy(); map.current = null; };
   }, []);
 
   // Markers
   useEffect(() => {
-    const m = map.current, group = layer.current;
-    if (!m || !group) return;
-    group.clearLayers();
-    for (const r of visible) {
-      const isSel = r.id === selectedId;
-      L.circleMarker([r.lat, r.lng], {
-        radius: isSel ? 10 : 7, weight: 2, color: isSel ? '#ffffff' : '#7a2d00',
-        fillColor: isSel ? '#ff8a3d' : '#e65100', fillOpacity: 0.95,
-      }).bindTooltip(r.name, { direction: 'top', offset: [0, -6] })
-        .on('click', () => setSelectedId(r.id))
-        .addTo(group);
-    }
+    const m = map.current;
+    if (!m || !mapReady) return;
+    m.setMarkers(visible.map(r => ({ id: r.id, lat: r.lat, lng: r.lng, title: r.name, selected: r.id === selectedId })), id => setSelectedId(id));
     if (!fitted.current && rows?.length) {
       // Most terrats are in the Barcelona area: frame those, the rest are a pan away.
-      const near = rows.filter(r => Math.abs(r.lat - CENTER[0]) < 0.12 && Math.abs(r.lng - CENTER[1]) < 0.16);
-      m.fitBounds(L.latLngBounds((near.length ? near : rows).map(r => [r.lat, r.lng] as L.LatLngTuple)), { padding: [24, 24] });
+      const near = rows.filter(r => Math.abs(r.lat - CENTER.lat) < 0.12 && Math.abs(r.lng - CENTER.lng) < 0.16);
+      m.fit(near.length ? near : rows);
       fitted.current = true;
     }
-  }, [visible, selectedId, rows]);
+  }, [visible, selectedId, rows, mapReady]);
 
   // Draggable pin while editing
   useEffect(() => {
     const m = map.current;
-    if (!m) return;
-    pin.current?.remove();
-    pin.current = null;
+    if (!m || !mapReady) return;
     const lat = Number(draft?.lat), lng = Number(draft?.lng);
-    if (editingId && draft && Number.isFinite(lat) && Number.isFinite(lng) && draft.lat !== '' && draft.lng !== '') {
-      pin.current = L.marker([lat, lng], {
-        draggable: true,
-        icon: L.divIcon({ className: 'roof-pin', html: '<span></span>', iconSize: [26, 26], iconAnchor: [13, 26] }),
-      }).on('dragend', e => {
-        const p = (e.target as L.Marker).getLatLng();
-        setDraft(prev => prev && { ...prev, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) });
-      }).addTo(m);
-    }
-  }, [draft?.lat, draft?.lng, editingId]);
+    const ok = editingId && draft && draft.lat !== '' && draft.lng !== '' && Number.isFinite(lat) && Number.isFinite(lng);
+    m.setEditPin(ok ? { lat, lng } : null, p => setDraft(prev => prev && { ...prev, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) }));
+  }, [draft?.lat, draft?.lng, editingId, mapReady]);
 
   // My position on the map
   useEffect(() => {
-    const m = map.current, group = meLayer.current;
-    if (!m || !group) return;
-    group.clearLayers();
-    if (!myPos) return;
-    L.circle([myPos.lat, myPos.lng], { radius: myPos.acc, color: '#4f93e6', weight: 1, fillColor: '#4f93e6', fillOpacity: 0.12, interactive: false }).addTo(group);
-    L.circleMarker([myPos.lat, myPos.lng], { radius: 8, color: '#ffffff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1 })
-      .bindTooltip('Ets aquí', { direction: 'top', offset: [0, -6] }).addTo(group);
-    if (!centeredOnMe.current) { m.flyTo([myPos.lat, myPos.lng], 15, { duration: 0.8 }); centeredOnMe.current = true; }
-  }, [myPos]);
+    const m = map.current;
+    if (!m || !mapReady) return;
+    m.setMe(myPos);
+    if (myPos && !centeredOnMe.current) { m.flyTo(myPos, 15); centeredOnMe.current = true; }
+  }, [myPos, mapReady]);
   useEffect(() => () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); }, []);
 
   // Searched address on the map
   useEffect(() => {
-    const m = map.current, group = placeLayer.current;
-    if (!m || !group) return;
-    group.clearLayers();
+    const m = map.current;
+    if (!m || !mapReady) return;
+    m.setPlace(place);
     if (!place) return;
-    L.marker([place.lat, place.lng], { icon: L.divIcon({ className: 'roof-pin place', html: '<span></span>', iconSize: [26, 26], iconAnchor: [13, 26] }) })
-      .bindTooltip(place.label, { direction: 'top', offset: [0, -24] }).addTo(group);
     const nearest = rows ? [...rows].sort((a, b) => distanceKm(place, a) - distanceKm(place, b)).slice(0, 3) : [];
-    m.flyToBounds(L.latLngBounds([[place.lat, place.lng], ...nearest.map(r => [r.lat, r.lng] as L.LatLngTuple)]), { padding: [40, 40], maxZoom: 16, duration: 0.8 });
-  }, [place, rows]);
+    m.fit([place, ...nearest], 16);
+  }, [place, rows, mapReady]);
 
   function choosePlace(p: Place) { setPlace(p); setPlaceResults(null); setPlaceQuery(p.label); setSelectedId(null); }
   async function findPlace(event: FormEvent) {
@@ -205,7 +175,7 @@ export function Rooftops({ data }: { data: AppData }) {
 
   function locateMe() {
     setGeoError('');
-    if (myPos) { map.current?.flyTo([myPos.lat, myPos.lng], Math.max(map.current.getZoom(), 15), { duration: 0.6 }); return; }
+    if (myPos) { map.current?.flyTo(myPos, 15); return; }
     if (!('geolocation' in navigator)) { setGeoError('Aquest dispositiu no permet obtenir la ubicació.'); return; }
     setLocating(true);
     centeredOnMe.current = false;
@@ -224,19 +194,19 @@ export function Rooftops({ data }: { data: AppData }) {
 
   function focus(r: Rooftop) {
     setSelectedId(r.id);
-    map.current?.flyTo([r.lat, r.lng], Math.max(map.current.getZoom(), 16), { duration: 0.6 });
+    map.current?.flyTo(r, 16);
     mapBox.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function startEdit(r: Rooftop | null) {
-    const c = map.current?.getCenter();
+    const c = map.current?.center();
     setEditingId(r ? r.id : 'new');
     setFormError('');
     setNotice('');
     setDraft({
       name: r?.name ?? '', street: r?.street ?? '', town: r?.town ?? '', province: r?.province ?? '', contact: r?.contact ?? '',
       phones: r?.phones ?? '', email: r?.email ?? '', hours: r?.hours ?? '', notes: r?.notes ?? '',
-      lat: r ? String(r.lat) : (c ? c.lat.toFixed(6) : String(CENTER[0])), lng: r ? String(r.lng) : (c ? c.lng.toFixed(6) : String(CENTER[1])),
+      lat: r ? String(r.lat) : (c ? c.lat.toFixed(6) : String(CENTER.lat)), lng: r ? String(r.lng) : (c ? c.lng.toFixed(6) : String(CENTER.lng)),
     });
   }
   function stopEdit() { setEditingId(null); setDraft(null); }
@@ -298,6 +268,7 @@ export function Rooftops({ data }: { data: AppData }) {
       </div>
     </div>
     {geoError && <p className="err" role="alert">{geoError}</p>}
+    {mapWarn && <p className="err" role="alert">{mapWarn}</p>}
     <form className="place-search" onSubmit={findPlace} role="search">
       <label htmlFor="t-adreca" className="sr-only">Carrer o adreça</label>
       <input id="t-adreca" type="search" placeholder="Escriu un carrer o adreça per veure els terrats més propers (p. ex. Via Laietana 43, Barcelona)" value={placeQuery} onChange={e => setPlaceQuery(e.target.value)} />

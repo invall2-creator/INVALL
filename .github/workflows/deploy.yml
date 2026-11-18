@@ -28,6 +28,8 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
+          # Clau de Google Maps (pública per disseny: s'ha de restringir a invall2-creator.github.io a Google Cloud).
+          VITE_GOOGLE_MAPS_KEY: ${{ secrets.VITE_GOOGLE_MAPS_KEY || vars.VITE_GOOGLE_MAPS_KEY || '' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://luyagrweeilatutliuwe.supabase.co' }}
           VITE_APP_VERSION: ${{ github.sha }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_Z-RXCkp4yjc2Bs7ewnijvg_CcwzKHfb' }}
