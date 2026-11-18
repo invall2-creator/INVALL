@@ -243,3 +243,4 @@ a.btn.nav-waze { background: #33ccff; border-color: #33ccff; color: #05202b; }
 .wind-arrow { display: inline-block; font-weight: 700; color: var(--accent); }
 .meteo-hours { font-size: 13px; }
 .meteo-hours td, .meteo-hours th { padding: 5px 6px; }
+.notice { color: #f3dc9c; background: #2a2310; border: 1px solid #5c4a17; border-radius: 8px; padding: 10px 12px; font-size: 14px; }
