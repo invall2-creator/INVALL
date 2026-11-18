@@ -15,6 +15,7 @@ import { Team } from './views/Team';
 import { Fleet } from './views/Fleet';
 import { Rooftops } from './views/Rooftops';
 import { usePresence } from './presence';
+import { UpdateBanner } from './UpdateBanner';
 
 const VIEWS = ['tauler', 'registra', 'historial', 'terrats', 'copia-de-seguretat', 'equip', 'flota'] as const;
 type View = typeof VIEWS[number];
@@ -32,6 +33,10 @@ function Brand() {
 }
 
 export function App() {
+  return <><UpdateBanner /><AppInner /></>;
+}
+
+function AppInner() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [recovering, setRecovering] = useState(false);
