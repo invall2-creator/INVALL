@@ -23,6 +23,29 @@ type View = typeof VIEWS[number];
 const LEGACY: Record<string, View> = { 'els-meus-vols': 'tauler', 'gestiona-els-vols': 'historial', excel: 'historial', 'comptes-de-pilots': 'equip' };
 const appUrl = () => window.location.origin + import.meta.env.BASE_URL;
 
+/**
+ * Result of a link from an email (account confirmation, password reset), read once at start-up.
+ * Supabase puts errors in the hash or the query (#error=access_denied&error_code=otp_expired…)
+ * and a successful sign-up as #access_token=…&type=signup.
+ */
+type AuthNotice = { kind: 'confirmed' | 'expired' | 'error'; text: string };
+const AUTH_NOTICE: AuthNotice | null = (() => {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const query = new URLSearchParams(window.location.search);
+  const get = (k: string) => params.get(k) ?? query.get(k);
+  const code = get('error_code'), error = get('error');
+  if (error || code) {
+    window.history.replaceState(null, '', import.meta.env.BASE_URL);
+    return code === 'otp_expired' || /expired|invalid/i.test(get('error_description') ?? '')
+      ? { kind: 'expired', text: "Aquest enllaç del correu ja s'ha fet servir o ha caducat. Si ja l'havies obert abans, el compte ja està confirmat: entra amb el teu correu i contrasenya. Si no, escriu el teu correu a dalt i prem «Envia'm un enllaç nou»." }
+      : { kind: 'error', text: "No s'ha pogut completar l'enllaç del correu. Prova d'entrar amb el teu correu i contrasenya o demana un enllaç nou." };
+  }
+  if (params.get('access_token') && params.get('type') === 'signup') {
+    return { kind: 'confirmed', text: "Correu confirmat correctament. La teva sol·licitud ja ha arribat a l'administració: quan l'autoritzin, podràs fer servir l'app." };
+  }
+  return null;
+})();
+
 function currentView(): View {
   const hash = window.location.hash.slice(1);
   return (VIEWS as readonly string[]).includes(hash) ? hash as View : LEGACY[hash] ?? 'tauler';
@@ -60,8 +83,20 @@ function AccessForm() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(AUTH_NOTICE?.text ?? '');
+  const [canResend, setCanResend] = useState(AUTH_NOTICE?.kind === 'expired' || AUTH_NOTICE?.kind === 'error');
   const [busy, setBusy] = useState(false);
+
+  async function resend() {
+    if (!email.trim()) { setMessage('Escriu el teu correu electrònic i torna a prémer el botó.'); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo: appUrl() } });
+    setBusy(false);
+    setMessage(error
+      ? (/already|confirmed/i.test(error.message) ? 'Aquest correu ja està confirmat. Entra amb la teva contrasenya.' : 'No s’ha pogut enviar. Espera un minut i torna-ho a provar.')
+      : 'T’hem enviat un enllaç nou. Obre’l una sola vegada; si el correu tarda, mira la carpeta de correu brossa.');
+    if (!error) setCanResend(false);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -75,14 +110,18 @@ function AccessForm() {
           options: { data: { display_name: name.trim() }, emailRedirectTo: appUrl() },
         });
         if (error) setMessage(error.code === 'signup_disabled' ? 'El registre no està obert ara mateix.' : 'No s’ha pogut tramitar el registre. Revisa les dades o torna-ho a provar més tard.');
-        else { setMode('login'); setMessage('Revisa el correu per confirmar el compte. Després, l’administració haurà d’autoritzar-te.'); }
+        else { setMode('login'); setCanResend(false); setMessage('Sol·licitud enviada. Ara obre el correu que t’hem enviat i prem l’enllaç de confirmació (només una vegada). Després, l’administració haurà d’autoritzar-te; fins llavors, en entrar veuràs que la sol·licitud està pendent.'); }
       } else if (mode === 'reset') {
         await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: appUrl() });
         setMode('login');
         setMessage('Si el correu és d’un compte d’UDRON, rebràs un enllaç per posar una contrasenya nova.');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) setMessage(error.code === 'email_not_confirmed' ? 'Confirma el correu electrònic abans d’entrar.' : 'No s’ha pogut entrar. Comprova el correu i la contrasenya.');
+        if (error) {
+          const unconfirmed = error.code === 'email_not_confirmed';
+          setCanResend(unconfirmed);
+          setMessage(unconfirmed ? 'Encara no has confirmat el correu electrònic. Busca el correu d’UDRON (mira també el correu brossa) o demana un enllaç nou.' : 'No s’ha pogut entrar. Comprova el correu i la contrasenya.');
+        }
       }
     } catch {
       setMessage('No s’ha pogut connectar amb UDRON. Torna-ho a provar.');
@@ -101,7 +140,8 @@ function AccessForm() {
       <label htmlFor="acc-correu">Correu electrònic<input id="acc-correu" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
       {mode !== 'reset' && <label htmlFor="acc-contrasenya">Contrasenya<input id="acc-contrasenya" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={mode === 'register' ? 8 : undefined} value={password} onChange={e => setPassword(e.target.value)} required /></label>}
       <button className="primary" disabled={busy}>{{ login: 'Entra', register: 'Envia la sol·licitud', reset: "Envia'm l'enllaç" }[mode]}</button>
-      {message && <p className="ok" role="status">{message}</p>}
+      {message && <p className={AUTH_NOTICE?.kind === 'expired' || canResend ? 'notice' : 'ok'} role="status">{message}</p>}
+      {canResend && <button type="button" onClick={() => void resend()} disabled={busy}>Envia'm un enllaç nou</button>}
       <div className="auth-links">
         {mode !== 'login' && <button type="button" className="link" onClick={() => { setMode('login'); setMessage(''); }}>Torna a l'inici de sessió</button>}
         {mode === 'login' && <button type="button" className="link" onClick={() => { setMode('reset'); setMessage(''); }}>He oblidat la contrasenya</button>}
@@ -221,8 +261,9 @@ function Shell({ user }: { user: User }) {
         : problem ? <div className="panel"><p className="err">{problem}</p><div><button onClick={reload}>Torna-ho a provar</button></div></div>
         : !profile || !data ? null
         : !approved ? <div className="panel">
-          <h2>Estat del compte</h2>
-          <p>{profile.approval_status === 'pending' ? 'La teva sol·licitud està pendent. Quan l’administració l’autoritzi, podràs registrar vols.' : 'El teu compte està bloquejat. Contacta amb l’administració.'}</p>
+          <h2>{profile.approval_status === 'pending' ? 'Alta rebuda' : 'Estat del compte'}</h2>
+          {profile.approval_status === 'pending' && <p className="ok">El teu correu està confirmat i la teva sol·licitud ja ha arribat a l'administració.</p>}
+          <p>{profile.approval_status === 'pending' ? 'Quan l’administració t’autoritzi, podràs entrar i registrar vols. No cal que tornis a donar-te d’alta: només has de tornar a entrar més tard o prémer «Torna a comprovar».' : 'El teu compte està bloquejat. Contacta amb l’administració.'}</p>
           <div><button onClick={reload}>Torna a comprovar</button></div>
         </div>
         : <>
